@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -116,6 +115,7 @@ private fun BodexHome() {
     val webPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     val webView = remember(context) {
         WebView(context).apply {
+            setBackgroundColor(android.graphics.Color.rgb(11, 18, 32))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -151,6 +151,7 @@ private fun BodexHome() {
                     callback.invoke(origin, false, false)
                 }
             }
+            loadUrl("https://example.com")
         }
     }
     DisposableEffect(webView) {
@@ -226,6 +227,8 @@ private fun BodexHome() {
             SectionTitle("المتصفح المدمج", Icons.Default.Language)
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Keep the native WebView first: on some Android versions it can draw above Compose siblings.
+                    AndroidView(factory = { webView }, modifier = Modifier.fillMaxWidth().height(360.dp))
                     OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("عنوان الموقع") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(onClick = {
                         val target = url.trim().let { if (it.startsWith("https://") || it.startsWith("http://")) it else "https://$it" }
@@ -241,7 +244,6 @@ private fun BodexHome() {
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("تفعيل أذونات الكاميرا والميكروفون") }
                     Text("WebRTC مفعّل. GPS الهاتف محظور داخل المتصفح؛ أذونات الكاميرا والميكروفون تخضع لموافقة أندرويد.", color = Muted, fontSize = 12.sp)
-                    AndroidView(factory = { webView }, modifier = Modifier.fillMaxWidth().height(480.dp))
                 }
             }
 
