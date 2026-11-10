@@ -61,7 +61,6 @@ private fun BodexTheme(content: @Composable () -> Unit) {
 
 @Composable
 private fun BodexHome() {
-    var proxyType by remember { mutableStateOf("SOCKS5") }
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
@@ -136,7 +135,7 @@ private fun BodexHome() {
                                 val permission = VpnService.prepare(context)
                                 if (permission == null) startVpn() else vpnPermission.launch(permission)
                             },
-                            enabled = !connected && saved && proxyType == "SOCKS5",
+                            enabled = !connected && saved,
                             modifier = Modifier.weight(1f)
                         ) { Text("تشغيل البروكسي") }
                         OutlinedButton(
@@ -157,12 +156,8 @@ private fun BodexHome() {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(value = profileLabel, onValueChange = { profileLabel = it; saved = false }, label = { Text("اسم الملف") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Text("نوع البروكسي — SOCKS5 متاح في هذه النسخة، وHTTP قيد التطوير", color = Muted)
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        listOf("SOCKS5", "HTTP").forEachIndexed { index, value ->
-                            SegmentedButton(selected = proxyType == value, onClick = { proxyType = value; saved = false }, shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(value) }
-                        }
-                    }
+                    Text("نوع البروكسي: SOCKS5", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("يدعم إعدادات SOCKS5 مع اسم المستخدم وكلمة المرور حسب مزوّد الخدمة.", color = Muted, fontSize = 12.sp)
                     OutlinedTextField(value = host, onValueChange = { host = it; saved = false }, label = { Text("Server / IP") }, placeholder = { Text("proxy.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = port, onValueChange = { port = it.filter(Char::isDigit).take(5); saved = false }, label = { Text("Port") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = username, onValueChange = { username = it; saved = false }, label = { Text("Username (اختياري)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
