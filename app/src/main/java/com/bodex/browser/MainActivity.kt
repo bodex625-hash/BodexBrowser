@@ -47,8 +47,7 @@ class MainActivity : ComponentActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
         setContent { HBTheme { BrowserScreen() } }
     }
-
-
+}
 
 @Composable
 private fun HBTheme(content: @Composable () -> Unit) {
