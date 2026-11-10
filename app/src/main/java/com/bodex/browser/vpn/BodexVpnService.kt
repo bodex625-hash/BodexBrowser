@@ -71,7 +71,7 @@ class BodexVpnService : VpnService() {
             // Route all IPv4/IPv6 traffic through the tunnel except the
             // upstream SOCKS5 endpoint. This avoids excluding the whole app
             // UID (which also excludes the embedded browser).
-            addDefaultRoutesExcept(builder, proxyAddresses)
+            addDefaultRoutesExcept(builder, listOf(proxyAddress))
             builder.addDnsServer("1.1.1.1")
             builder.addDnsServer("2606:4700:4700::1111")
 
