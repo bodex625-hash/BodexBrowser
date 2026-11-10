@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 
 private val Navy = Color(0xFF0B1220)
 private val Panel = Color(0xFF142238)
@@ -452,7 +453,7 @@ private fun FullBrowserScreen(onBackToProxy: () -> Unit) {
             key(selectedTab) {
                 AndroidView(
                     factory = { tabs[selectedTab] },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.fillMaxWidth().weight(1f).zIndex(-1f),
                     update = { }
                 )
             }
