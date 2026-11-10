@@ -156,7 +156,7 @@ class BodexVpnService : VpnService() {
         addFamilyRoutes(16)
     }
 
-    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
+    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
     override fun onRevoke() { stopTunnel(); super.onRevoke() }
     override fun onDestroy() { stopTunnel(); super.onDestroy() }
 
