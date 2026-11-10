@@ -2,6 +2,8 @@ package com.hb.browser
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.view.WindowManager
+import android.content.Context
 import android.webkit.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -20,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -34,12 +37,84 @@ private const val HOME_URL = "https://www.google.com"
 
 data class BrowserTab(val id: Int, val title: String, val url: String)
 
+private enum class ClearAction { COOKIES, CACHE, HISTORY, BOOKMARKS }
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WebView.setWebContentsDebuggingEnabled(false)
+        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        CookieManager.getInstance().setAcceptCookie(true)
         setContent { HBTheme { BrowserScreen() } }
     }
+
+    if (bookmarksDialog) {
+        AlertDialog(
+            onDismissRequest = { bookmarksDialog = false },
+            containerColor = SurfaceDark,
+            title = { Text("الصفحات المحفوظة", color = Color.White) },
+            text = {
+                if (savedPages.isEmpty()) {
+                    Text("لا توجد صفحات محفوظة حالياً", color = TextMuted)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        savedPages.toList().forEach { page ->
+                            TextButton(onClick = {
+                                address = page
+                                webViews[selectedId]?.loadUrl(page)
+                                updateTab(selectedId, url = page)
+                                bookmarksDialog = false
+                            }) {
+                                Text(page, color = Color.White, maxLines = 2)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { bookmarksDialog = false }) { Text("إغلاق", color = Gold) } }
+        )
+    }
+
+    pendingClear?.let { action ->
+        val title = when (action) {
+            ClearAction.COOKIES -> "حذف الكوكيز؟"
+            ClearAction.CACHE -> "حذف الكاش؟"
+            ClearAction.HISTORY -> "حذف سجل التصفح؟"
+            ClearAction.BOOKMARKS -> "حذف الصفحات المحفوظة؟"
+        }
+        val detail = when (action) {
+            ClearAction.COOKIES -> "سيتم حذف ملفات تعريف الارتباط من المواقع، وقد تحتاج إلى تسجيل الدخول مجدداً."
+            ClearAction.CACHE -> "سيتم حذف الملفات المؤقتة للمواقع. لن يتم حذف الكوكيز أو سجل التصفح."
+            ClearAction.HISTORY -> "سيتم مسح سجل الصفحات من علامات التبويب المفتوحة."
+            ClearAction.BOOKMARKS -> "سيتم حذف جميع الصفحات التي حفظتها في المفضلة."
+        }
+        AlertDialog(
+            onDismissRequest = { pendingClear = null },
+            containerColor = SurfaceDark,
+            title = { Text(title, color = Color.White) },
+            text = { Text(detail, color = TextMuted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    when (action) {
+                        ClearAction.COOKIES -> CookieManager.getInstance().removeAllCookies {
+                            CookieManager.getInstance().flush()
+                        }
+                        ClearAction.CACHE -> webViews.values.forEach { it.clearCache(true) }
+                        ClearAction.HISTORY -> webViews.values.forEach { it.clearHistory() }
+                        ClearAction.BOOKMARKS -> {
+                            savedPages.clear()
+                            prefs.edit().remove("bookmarks").apply()
+                        }
+                    }
+                    pendingClear = null
+                }) { Text("حذف", color = Gold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClear = null }) { Text("إلغاء", color = Color.White) }
+            }
+        )
+    }
+
 }
 
 @Composable
@@ -56,6 +131,11 @@ private fun HBTheme(content: @Composable () -> Unit) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun BrowserScreen() {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("hb_browser_data", Context.MODE_PRIVATE) }
+    val savedPages = remember { mutableStateListOf<String>().apply { addAll(prefs.getStringSet("bookmarks", emptySet()).orEmpty()) } }
+    var bookmarksDialog by remember { mutableStateOf(false) }
+    var pendingClear by remember { mutableStateOf<ClearAction?>(null) }
     val tabs = remember { mutableStateListOf(BrowserTab(1, "علامة تبويب جديدة", HOME_URL)) }
     var selectedId by remember { mutableIntStateOf(1) }
     var nextId by remember { mutableIntStateOf(2) }
@@ -87,6 +167,14 @@ private fun BrowserScreen() {
         webViews[selectedId]?.loadUrl(target)
         updateTab(selectedId, url = target)
         keyboard?.hide()
+    }
+
+    fun saveCurrentPage() {
+        val page = webViews[selectedId]?.url ?: address
+        if (page.isNotBlank() && page != HOME_URL && !savedPages.contains(page)) {
+            savedPages.add(page)
+            prefs.edit().putStringSet("bookmarks", savedPages.toSet()).apply()
+        }
     }
 
     fun addTab() {
@@ -151,14 +239,19 @@ private fun BrowserScreen() {
                     Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = Color.White)
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("مسح الكاش") }, onClick = {
+                    DropdownMenuItem(text = { Text("حفظ الصفحة الحالية") }, onClick = {
                         menuOpen = false
-                        webViews.values.forEach { it.clearCache(true) }
+                        saveCurrentPage()
                     })
-                    DropdownMenuItem(text = { Text("مسح سجل التصفح") }, onClick = {
+                    DropdownMenuItem(text = { Text("الصفحات المحفوظة") }, onClick = {
                         menuOpen = false
-                        webViews.values.forEach { it.clearHistory() }
+                        bookmarksDialog = true
                     })
+                    HorizontalDivider(color = TextMuted.copy(alpha = 0.25f))
+                    DropdownMenuItem(text = { Text("حذف الكوكيز") }, onClick = { menuOpen = false; pendingClear = ClearAction.COOKIES })
+                    DropdownMenuItem(text = { Text("حذف الكاش") }, onClick = { menuOpen = false; pendingClear = ClearAction.CACHE })
+                    DropdownMenuItem(text = { Text("حذف سجل التصفح") }, onClick = { menuOpen = false; pendingClear = ClearAction.HISTORY })
+                    DropdownMenuItem(text = { Text("حذف الصفحات المحفوظة") }, onClick = { menuOpen = false; pendingClear = ClearAction.BOOKMARKS })
                 }
             }
         }
@@ -174,6 +267,7 @@ private fun BrowserScreen() {
                     WebView(context).apply {
                         settings.apply {
                             javaScriptEnabled = true
+                            textZoom = 80
                             domStorageEnabled = true
                             databaseEnabled = true
                             loadsImagesAutomatically = true
@@ -185,7 +279,9 @@ private fun BrowserScreen() {
                             setGeolocationEnabled(false)
                             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                         }
-                        webViewClient = object : WebViewClient() {
+                        CookieManager.getInstance().setAcceptCookie(true)
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                                 address = url
                                 pageLoading = true
@@ -194,6 +290,7 @@ private fun BrowserScreen() {
                             override fun onPageFinished(view: WebView, url: String) {
                                 address = url
                                 pageLoading = false
+                                CookieManager.getInstance().flush()
                                 updateTab(selectedId, title = view.title ?: "HB Browser", url = url)
                             }
                         }
