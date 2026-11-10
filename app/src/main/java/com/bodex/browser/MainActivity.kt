@@ -48,74 +48,7 @@ class MainActivity : ComponentActivity() {
         setContent { HBTheme { BrowserScreen() } }
     }
 
-    if (bookmarksDialog) {
-        AlertDialog(
-            onDismissRequest = { bookmarksDialog = false },
-            containerColor = SurfaceDark,
-            title = { Text("الصفحات المحفوظة", color = Color.White) },
-            text = {
-                if (savedPages.isEmpty()) {
-                    Text("لا توجد صفحات محفوظة حالياً", color = TextMuted)
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        savedPages.toList().forEach { page ->
-                            TextButton(onClick = {
-                                address = page
-                                webViews[selectedId]?.loadUrl(page)
-                                updateTab(selectedId, url = page)
-                                bookmarksDialog = false
-                            }) {
-                                Text(page, color = Color.White, maxLines = 2)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { bookmarksDialog = false }) { Text("إغلاق", color = Gold) } }
-        )
-    }
 
-    pendingClear?.let { action ->
-        val title = when (action) {
-            ClearAction.COOKIES -> "حذف الكوكيز؟"
-            ClearAction.CACHE -> "حذف الكاش؟"
-            ClearAction.HISTORY -> "حذف سجل التصفح؟"
-            ClearAction.BOOKMARKS -> "حذف الصفحات المحفوظة؟"
-        }
-        val detail = when (action) {
-            ClearAction.COOKIES -> "سيتم حذف ملفات تعريف الارتباط من المواقع، وقد تحتاج إلى تسجيل الدخول مجدداً."
-            ClearAction.CACHE -> "سيتم حذف الملفات المؤقتة للمواقع. لن يتم حذف الكوكيز أو سجل التصفح."
-            ClearAction.HISTORY -> "سيتم مسح سجل الصفحات من علامات التبويب المفتوحة."
-            ClearAction.BOOKMARKS -> "سيتم حذف جميع الصفحات التي حفظتها في المفضلة."
-        }
-        AlertDialog(
-            onDismissRequest = { pendingClear = null },
-            containerColor = SurfaceDark,
-            title = { Text(title, color = Color.White) },
-            text = { Text(detail, color = TextMuted) },
-            confirmButton = {
-                TextButton(onClick = {
-                    when (action) {
-                        ClearAction.COOKIES -> CookieManager.getInstance().removeAllCookies {
-                            CookieManager.getInstance().flush()
-                        }
-                        ClearAction.CACHE -> webViews.values.forEach { it.clearCache(true) }
-                        ClearAction.HISTORY -> webViews.values.forEach { it.clearHistory() }
-                        ClearAction.BOOKMARKS -> {
-                            savedPages.clear()
-                            prefs.edit().remove("bookmarks").apply()
-                        }
-                    }
-                    pendingClear = null
-                }) { Text("حذف", color = Gold) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingClear = null }) { Text("إلغاء", color = Color.White) }
-            }
-        )
-    }
-
-}
 
 @Composable
 private fun HBTheme(content: @Composable () -> Unit) {
@@ -366,4 +299,72 @@ private fun BrowserScreen() {
             }
         )
     }
+
+    if (bookmarksDialog) {
+        AlertDialog(
+            onDismissRequest = { bookmarksDialog = false },
+            containerColor = SurfaceDark,
+            title = { Text("الصفحات المحفوظة", color = Color.White) },
+            text = {
+                if (savedPages.isEmpty()) {
+                    Text("لا توجد صفحات محفوظة حالياً", color = TextMuted)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        savedPages.toList().forEach { page ->
+                            TextButton(onClick = {
+                                address = page
+                                webViews[selectedId]?.loadUrl(page)
+                                updateTab(selectedId, url = page)
+                                bookmarksDialog = false
+                            }) {
+                                Text(page, color = Color.White, maxLines = 2)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { bookmarksDialog = false }) { Text("إغلاق", color = Gold) } }
+        )
+    }
+
+    pendingClear?.let { action ->
+        val title = when (action) {
+            ClearAction.COOKIES -> "حذف الكوكيز؟"
+            ClearAction.CACHE -> "حذف الكاش؟"
+            ClearAction.HISTORY -> "حذف سجل التصفح؟"
+            ClearAction.BOOKMARKS -> "حذف الصفحات المحفوظة؟"
+        }
+        val detail = when (action) {
+            ClearAction.COOKIES -> "سيتم حذف ملفات تعريف الارتباط من المواقع، وقد تحتاج إلى تسجيل الدخول مجدداً."
+            ClearAction.CACHE -> "سيتم حذف الملفات المؤقتة للمواقع. لن يتم حذف الكوكيز أو سجل التصفح."
+            ClearAction.HISTORY -> "سيتم مسح سجل الصفحات من علامات التبويب المفتوحة."
+            ClearAction.BOOKMARKS -> "سيتم حذف جميع الصفحات التي حفظتها في المفضلة."
+        }
+        AlertDialog(
+            onDismissRequest = { pendingClear = null },
+            containerColor = SurfaceDark,
+            title = { Text(title, color = Color.White) },
+            text = { Text(detail, color = TextMuted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    when (action) {
+                        ClearAction.COOKIES -> CookieManager.getInstance().removeAllCookies {
+                            CookieManager.getInstance().flush()
+                        }
+                        ClearAction.CACHE -> webViews.values.forEach { it.clearCache(true) }
+                        ClearAction.HISTORY -> webViews.values.forEach { it.clearHistory() }
+                        ClearAction.BOOKMARKS -> {
+                            savedPages.clear()
+                            prefs.edit().remove("bookmarks").apply()
+                        }
+                    }
+                    pendingClear = null
+                }) { Text("حذف", color = Gold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClear = null }) { Text("إلغاء", color = Color.White) }
+            }
+        )
+    }
+
 }
