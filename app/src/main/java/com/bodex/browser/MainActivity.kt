@@ -119,7 +119,7 @@ private fun BodexHome() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
-            settings.setGeolocationEnabled(true)
+            settings.setGeolocationEnabled(false)
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.javaScriptCanOpenWindowsAutomatically = false
@@ -148,9 +148,7 @@ private fun BodexHome() {
                 }
 
                 override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
-                    val fine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                    val coarse = context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                    callback.invoke(origin, fine || coarse, false)
+                    callback.invoke(origin, false, false)
                 }
             }
         }
@@ -236,15 +234,13 @@ private fun BodexHome() {
                     OutlinedButton(
                         onClick = {
                             webPermissions.launch(arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION,
                                 Manifest.permission.CAMERA,
                                 Manifest.permission.RECORD_AUDIO
                             ))
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("تفعيل أذونات الموقع وWebRTC") }
-                    Text("WebRTC مفعّل. صلاحيات الموقع والكاميرا والميكروفون تخضع لموافقة أندرويد.", color = Muted, fontSize = 12.sp)
+                    ) { Text("تفعيل أذونات الكاميرا والميكروفون") }
+                    Text("WebRTC مفعّل. GPS الهاتف محظور داخل المتصفح؛ أذونات الكاميرا والميكروفون تخضع لموافقة أندرويد.", color = Muted, fontSize = 12.sp)
                     AndroidView(factory = { webView }, modifier = Modifier.fillMaxWidth().height(480.dp))
                 }
             }
