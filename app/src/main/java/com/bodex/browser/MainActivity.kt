@@ -188,6 +188,9 @@ private fun BodexHome() {
                     Spacer(Modifier.height(8.dp))
                     Text(connectionMessage, color = if (connected) Color(0xFF7FE0B0) else Color(0xFFFFC266), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text("اتصال SOCKS5 عبر VPN للهاتف", color = Muted, fontSize = 12.sp)
+                    if (connected) {
+                        TextButton(onClick = { browserMode = true }) { Text("فتح المتصفح الكامل", color = Cyan) }
+                    }
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
@@ -293,7 +296,21 @@ private fun FullBrowserScreen(onBackToProxy: () -> Unit) {
                 override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
                     callback.invoke(origin, false, false)
                 }
-                override fun onPermissionRequest(request: PermissionRequest) { request.deny() }
+                override fun onPermissionRequest(request: PermissionRequest) {
+                    post {
+                        val requested = request.resources.toSet()
+                        val supported = requested.all {
+                            it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
+                            it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                        }
+                        val cameraGranted = context.checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        val micGranted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        val allowed = supported &&
+                            (!requested.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) || cameraGranted) &&
+                            (!requested.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) || micGranted)
+                        if (allowed) request.grant(request.resources) else request.deny()
+                    }
+                }
             }
             loadUrl(initialUrl)
         }
