@@ -11,7 +11,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
-import androidx.core.content.ContextCompat
 import com.bodex.browser.vpn.BodexVpnService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -84,7 +83,13 @@ private fun BodexHome() {
                 }
             }
         }
-        ContextCompat.registerReceiver(context, receiver, IntentFilter(BodexVpnService.ACTION_STATE), ContextCompat.RECEIVER_NOT_EXPORTED)
+        val filter = IntentFilter(BodexVpnService.ACTION_STATE)
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(receiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            context.registerReceiver(receiver, filter)
+        }
         onDispose { context.unregisterReceiver(receiver) }
     }
     val startVpn: () -> Unit = {
