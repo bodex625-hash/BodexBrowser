@@ -35,6 +35,12 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Download and verify Hev SOCKS5 tunnel AAR
+        run: |
+          mkdir -p app/libs
+          curl -fL --retry 3 -o app/libs/hev-socks5-tunnel.aar https://github.com/heiher/hev-socks5-tunnel/releases/download/2.19.3/hev-socks5-tunnel.aar
+          echo "ab6c581e6157680cfe5687ee7bbdcf95405c006c2db3701879ec44b9e5f83836  app/libs/hev-socks5-tunnel.aar" | sha256sum -c -
+
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
