@@ -2,11 +2,16 @@ package com.bodex.browser
 
 import android.os.Bundle
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
+import androidx.core.content.ContextCompat
 import com.bodex.browser.vpn.BodexVpnService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +26,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -64,9 +70,23 @@ private fun BodexHome() {
     var profileLabel by remember { mutableStateOf("My proxy") }
     var saved by remember { mutableStateOf(false) }
     var url by remember { mutableStateOf("https://example.com") }
-    var connected by remember { mutableStateOf(false) }
-    var connectionMessage by remember { mutableStateOf("غير متصل") }
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("bodex_state", android.content.Context.MODE_PRIVATE) }
+    var connected by remember { mutableStateOf(prefs.getBoolean("connected", false)) }
+    var connectionMessage by remember { mutableStateOf(prefs.getString("message", "غير متصل") ?: "غير متصل") }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: android.content.Context?, intent: Intent?) {
+                if (intent?.action == BodexVpnService.ACTION_STATE) {
+                    connected = intent.getBooleanExtra(BodexVpnService.EXTRA_CONNECTED, false)
+                    connectionMessage = intent.getStringExtra(BodexVpnService.EXTRA_MESSAGE) ?: if (connected) "متصل" else "غير متصل"
+                    prefs.edit().putBoolean("connected", connected).putString("message", connectionMessage).apply()
+                }
+            }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(BodexVpnService.ACTION_STATE), ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
     val startVpn: () -> Unit = {
         val serviceIntent = Intent(context, BodexVpnService::class.java).apply {
             action = BodexVpnService.ACTION_START
@@ -88,7 +108,7 @@ private fun BodexHome() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Security, contentDescription = null, tint = Cyan, modifier = Modifier.size(34.dp))
+                Image(painter = painterResource(id = R.drawable.bodex_logo), contentDescription = "Bodex logo", modifier = Modifier.size(42.dp))
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text("BODEX", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
@@ -105,17 +125,25 @@ private fun BodexHome() {
                     Text(connectionMessage, color = if (connected) Color(0xFF7FE0B0) else Color(0xFFFFC266), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text("اتصال SOCKS5 عبر VPN للهاتف", color = Muted, fontSize = 12.sp)
                     Spacer(Modifier.height(14.dp))
-                    Button(onClick = {
-                        if (connected) {
-                            val stop = Intent(context, BodexVpnService::class.java).setAction(BodexVpnService.ACTION_STOP)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(stop) else context.startService(stop)
-                            connected = false; connectionMessage = "غير متصل"
-                        } else if (saved && proxyType == "SOCKS5") {
-                            val permission = VpnService.prepare(context)
-                            if (permission == null) startVpn() else vpnPermission.launch(permission)
-                        }
-                    }, enabled = connected || (saved && proxyType == "SOCKS5"), modifier = Modifier.fillMaxWidth()) {
-                        Text(if (connected) "إيقاف البروكسي" else if (proxyType == "SOCKS5") "تشغيل البروكسي" else "HTTP غير مدعوم حالياً")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                val permission = VpnService.prepare(context)
+                                if (permission == null) startVpn() else vpnPermission.launch(permission)
+                            },
+                            enabled = !connected && saved && proxyType == "SOCKS5",
+                            modifier = Modifier.weight(1f)
+                        ) { Text("تشغيل البروكسي") }
+                        OutlinedButton(
+                            onClick = {
+                                val stop = Intent(context, BodexVpnService::class.java).setAction(BodexVpnService.ACTION_STOP)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(stop) else context.startService(stop)
+                                connected = false
+                                connectionMessage = "جارٍ إيقاف البروكسي"
+                            },
+                            enabled = connected,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("إيقاف البروكسي") }
                     }
                 }
             }
