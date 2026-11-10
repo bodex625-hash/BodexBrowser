@@ -11,6 +11,9 @@ import android.util.Log
 import hev.htproxy.TProxyService
 import java.io.File
 import java.io.IOException
+import java.math.BigInteger
+import java.net.Inet4Address
+import java.net.InetAddress
 
 class BodexVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
@@ -49,14 +52,28 @@ class BodexVpnService : VpnService() {
                 startForeground(NOTIFICATION_ID, notification)
             }
 
+            // Resolve the SOCKS5 endpoint before installing VPN routes. The
+            // endpoint itself must bypass TUN, while this app's WebView must
+            // remain inside TUN.
+            val proxyAddresses = InetAddress.getAllByName(host).distinctBy { it.hostAddress }
+            if (proxyAddresses.isEmpty()) {
+                throw IllegalArgumentException("تعذر تحديد عنوان خادم SOCKS5")
+            }
+            val proxyAddress = proxyAddresses.firstOrNull { it is Inet4Address } ?: proxyAddresses.first()
+
             val builder = Builder()
                 .setSession("Bodex SOCKS5")
                 .setMtu(1500)
                 .setBlocking(false)
                 .addAddress("198.18.0.1", 15)
-                .addRoute("0.0.0.0", 0)
-                .addDnsServer("1.1.1.1")
-                .addDisallowedApplication(packageName)
+                .addAddress("fc00::1", 128)
+
+            // Route all IPv4/IPv6 traffic through the tunnel except the
+            // upstream SOCKS5 endpoint. This avoids excluding the whole app
+            // UID (which also excludes the embedded browser).
+            addDefaultRoutesExcept(builder, proxyAddresses)
+            builder.addDnsServer("1.1.1.1")
+            builder.addDnsServer("2606:4700:4700::1111")
 
             tun = builder.establish() ?: throw IllegalStateException("تعذر إنشاء واجهة VPN")
             val config = File(cacheDir, "bodex-socks5.conf")
@@ -64,10 +81,12 @@ class BodexVpnService : VpnService() {
                 append("tunnel:\n")
                 append("  mtu: 1500\n")
                 append("  ipv4: 198.18.0.1\n")
+                append("  ipv6: 'fc00::1'\n")
                 append("socks5:\n")
-                append("  address: \"").append(yaml(host)).append("\"\n")
+                append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 append("  port: ").append(port).append("\n")
                 append("  udp: 'udp'\n")
+                append("  udp-address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 if (user.isNotEmpty() && pass.isNotEmpty()) {
                     append("  username: \"").append(yaml(user)).append("\"\n")
                     append("  password: \"").append(yaml(pass)).append("\"\n")
@@ -106,7 +125,38 @@ class BodexVpnService : VpnService() {
         }
     }
 
-    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
+    private fun addDefaultRoutesExcept(builder: Builder, excluded: List<InetAddress>) {
+        fun addFamilyRoutes(addressBytes: Int) {
+            val bits = addressBytes * 8
+            val blocked = excluded
+                .filter { it.address.size == addressBytes }
+                .map { BigInteger(1, it.address) }
+                .toSet()
+
+            fun add(prefix: BigInteger, prefixLength: Int) {
+                val hasBlockedAddress = blocked.any { it.shiftRight(bits - prefixLength) == prefix }
+                if (!hasBlockedAddress) {
+                    val network = prefix.shiftLeft(bits - prefixLength)
+                    val raw = network.toByteArray()
+                    val address = ByteArray(addressBytes)
+                    val count = minOf(raw.size, addressBytes)
+                    System.arraycopy(raw, raw.size - count, address, addressBytes - count, count)
+                    builder.addRoute(InetAddress.getByAddress(address), prefixLength)
+                    return
+                }
+                if (prefixLength == bits) return
+                add(prefix.shiftLeft(1), prefixLength + 1)
+                add(prefix.shiftLeft(1).or(BigInteger.ONE), prefixLength + 1)
+            }
+
+            add(BigInteger.ZERO, 0)
+        }
+
+        addFamilyRoutes(4)
+        addFamilyRoutes(16)
+    }
+
+    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
     override fun onRevoke() { stopTunnel(); super.onRevoke() }
     override fun onDestroy() { stopTunnel(); super.onDestroy() }
 
