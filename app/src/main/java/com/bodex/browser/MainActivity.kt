@@ -1,6 +1,9 @@
 package com.bodex.browser
 
 import android.os.Bundle
+import android.app.Activity
+import android.view.View
+import android.view.WindowInsets
 import android.Manifest
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -78,6 +81,48 @@ private fun BodexHome() {
     val prefs = remember { context.getSharedPreferences("bodex_state", android.content.Context.MODE_PRIVATE) }
     var connected by remember { mutableStateOf(prefs.getBoolean("connected", false)) }
     var browserMode by remember { mutableStateOf(false) }
+
+    DisposableEffect(browserMode, context) {
+        val window = (context as? Activity)?.window
+        val decor = window?.decorView
+        val previousFlags = decor?.systemUiVisibility ?: 0
+        if (browserMode && window != null && decor != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.let { controller ->
+                    controller.systemBarsBehavior =
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                decor.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                )
+            }
+        } else if (window != null && decor != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+            } else {
+                @Suppress("DEPRECATION")
+                decor.systemUiVisibility = previousFlags
+            }
+        }
+        onDispose {
+            if (window != null && decor != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                } else {
+                    @Suppress("DEPRECATION")
+                    decor.systemUiVisibility = previousFlags
+                }
+            }
+        }
+    }
     var connectionMessage by remember { mutableStateOf(prefs.getString("message", "غير متصل") ?: "غير متصل") }
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
