@@ -1,6 +1,13 @@
 package com.bodex.browser
 
 import android.os.Bundle
+import android.Manifest
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
@@ -106,6 +113,55 @@ private fun BodexHome() {
         if (result.resultCode == android.app.Activity.RESULT_OK) startVpn()
     }
 
+    val webPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    val webView = remember(context) {
+        WebView(context).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.setGeolocationEnabled(true)
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
+                    val scheme = request.url.scheme?.lowercase()
+                    return scheme != "https" && scheme != "http"
+                }
+            }
+            webChromeClient = object : WebChromeClient() {
+                override fun onPermissionRequest(request: PermissionRequest) {
+                    post {
+                        val requested = request.resources.toSet()
+                        val supported = requested.all {
+                            it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
+                            it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                        }
+                        val cameraGranted = context.checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        val micGranted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        val allowed = supported &&
+                            (!requested.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) || cameraGranted) &&
+                            (!requested.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) || micGranted)
+                        if (allowed) request.grant(request.resources) else request.deny()
+                    }
+                }
+
+                override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
+                    val fine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    val coarse = context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    callback.invoke(origin, fine || coarse, false)
+                }
+            }
+        }
+    }
+    DisposableEffect(webView) {
+        onDispose {
+            webView.stopLoading()
+            webView.destroy()
+        }
+    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = Navy) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -173,8 +229,23 @@ private fun BodexHome() {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("عنوان الموقع") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = { }, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("فتح الموقع — سيُفعّل بعد إضافة WebView") }
-                    Text("اتصال VPN يوجّه حركة التطبيقات عبر نفق SOCKS5. المتصفح المدمج سيُستكمل في تحديث لاحق.", color = Muted, fontSize = 12.sp)
+                    Button(onClick = {
+                        val target = url.trim().let { if (it.startsWith("https://") || it.startsWith("http://")) it else "https://$it" }
+                        webView.loadUrl(target)
+                    }, enabled = url.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("فتح الموقع") }
+                    OutlinedButton(
+                        onClick = {
+                            webPermissions.launch(arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                                Manifest.permission.CAMERA,
+                                Manifest.permission.RECORD_AUDIO
+                            ))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("تفعيل أذونات الموقع وWebRTC") }
+                    Text("WebRTC مفعّل. صلاحيات الموقع والكاميرا والميكروفون تخضع لموافقة أندرويد.", color = Muted, fontSize = 12.sp)
+                    AndroidView(factory = { webView }, modifier = Modifier.fillMaxWidth().height(480.dp))
                 }
             }
 
