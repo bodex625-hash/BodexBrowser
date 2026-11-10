@@ -4,7 +4,7 @@ name: Build Bodex Browser APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feature/vpn-engine-integration ]
 
 permissions:
   contents: read
