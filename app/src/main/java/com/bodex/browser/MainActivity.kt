@@ -1,6 +1,13 @@
 package com.bodex.browser
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.VpnService
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import com.bodex.browser.vpn.BodexVpnService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -57,6 +64,23 @@ private fun BodexHome() {
     var profileLabel by remember { mutableStateOf("My proxy") }
     var saved by remember { mutableStateOf(false) }
     var url by remember { mutableStateOf("https://example.com") }
+    var connected by remember { mutableStateOf(false) }
+    var connectionMessage by remember { mutableStateOf("غير متصل") }
+    val context = LocalContext.current
+    val startVpn: () -> Unit = {
+        val serviceIntent = Intent(context, BodexVpnService::class.java).apply {
+            action = BodexVpnService.ACTION_START
+            putExtra(BodexVpnService.EXTRA_HOST, host.trim())
+            putExtra(BodexVpnService.EXTRA_PORT, port.toIntOrNull() ?: 0)
+            putExtra(BodexVpnService.EXTRA_USER, username)
+            putExtra(BodexVpnService.EXTRA_PASS, password)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent) else context.startService(serviceIntent)
+        connectionMessage = "تم إرسال طلب الاتصال؛ تحقق من حالة VPN"
+    }
+    val vpnPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) startVpn()
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Navy) {
         Column(
@@ -78,11 +102,20 @@ private fun BodexHome() {
                 Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("حالة الاتصال", color = Muted)
                     Spacer(Modifier.height(8.dp))
-                    Text("غير متصل", color = Color(0xFFFFC266), fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                    Text("محرك VPN قيد الدمج والاختبار", color = Muted, fontSize = 12.sp)
+                    Text(connectionMessage, color = if (connected) Color(0xFF7FE0B0) else Color(0xFFFFC266), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("اتصال SOCKS5 عبر VPN للهاتف", color = Muted, fontSize = 12.sp)
                     Spacer(Modifier.height(14.dp))
-                    Button(onClick = { }, enabled = false, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(disabledContainerColor = Color(0xFF28506A))) {
-                        Text("تشغيل البروكسي — قريباً", color = Color.White)
+                    Button(onClick = {
+                        if (connected) {
+                            val stop = Intent(context, BodexVpnService::class.java).setAction(BodexVpnService.ACTION_STOP)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(stop) else context.startService(stop)
+                            connected = false; connectionMessage = "غير متصل"
+                        } else if (saved && proxyType == "SOCKS5") {
+                            val permission = VpnService.prepare(context)
+                            if (permission == null) startVpn() else vpnPermission.launch(permission)
+                        }
+                    }, enabled = connected || (saved && proxyType == "SOCKS5"), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (connected) "إيقاف البروكسي" else if (proxyType == "SOCKS5") "تشغيل البروكسي" else "HTTP غير مدعوم حالياً")
                     }
                 }
             }
@@ -91,7 +124,7 @@ private fun BodexHome() {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(value = profileLabel, onValueChange = { profileLabel = it; saved = false }, label = { Text("اسم الملف") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Text("نوع البروكسي", color = Muted)
+                    Text("نوع البروكسي — SOCKS5 متاح في هذه النسخة، وHTTP قيد التطوير", color = Muted)
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         listOf("SOCKS5", "HTTP").forEachIndexed { index, value ->
                             SegmentedButton(selected = proxyType == value, onClick = { proxyType = value; saved = false }, shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(value) }
@@ -113,7 +146,7 @@ private fun BodexHome() {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("عنوان الموقع") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(onClick = { }, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("فتح الموقع — سيُفعّل بعد إضافة WebView") }
-                    Text("المرحلة الحالية تعرض هيكل الواجهة فقط؛ لم يتم توجيه حركة التصفح أو الهاتف عبر البروكسي بعد.", color = Muted, fontSize = 12.sp)
+                    Text("اتصال VPN يوجّه حركة التطبيقات عبر نفق SOCKS5. المتصفح المدمج سيُستكمل في تحديث لاحق.", color = Muted, fontSize = 12.sp)
                 }
             }
 
