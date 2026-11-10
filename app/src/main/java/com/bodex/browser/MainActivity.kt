@@ -77,12 +77,14 @@ private fun BodexHome() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("bodex_state", android.content.Context.MODE_PRIVATE) }
     var connected by remember { mutableStateOf(prefs.getBoolean("connected", false)) }
+    var browserMode by remember { mutableStateOf(false) }
     var connectionMessage by remember { mutableStateOf(prefs.getString("message", "غير متصل") ?: "غير متصل") }
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: android.content.Context?, intent: Intent?) {
                 if (intent?.action == BodexVpnService.ACTION_STATE) {
                     connected = intent.getBooleanExtra(BodexVpnService.EXTRA_CONNECTED, false)
+                    if (connected) browserMode = true
                     connectionMessage = intent.getStringExtra(BodexVpnService.EXTRA_MESSAGE) ?: if (connected) "متصل" else "غير متصل"
                     prefs.edit().putBoolean("connected", connected).putString("message", connectionMessage).apply()
                 }
@@ -162,6 +164,9 @@ private fun BodexHome() {
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Navy) {
+        if (browserMode && connected) {
+            FullBrowserScreen(onBackToProxy = { browserMode = false })
+        } else {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -249,6 +254,156 @@ private fun BodexHome() {
 
             Text("Bodex Browser • Android", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
+        }
+    }
+}
+
+@Composable
+private fun FullBrowserScreen(onBackToProxy: () -> Unit) {
+    val context = LocalContext.current
+    val tabs = remember { mutableStateListOf<WebView>() }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var address by remember { mutableStateOf("https://www.google.com") }
+    var pageTitle by remember { mutableStateOf("تبويب جديد") }
+
+    fun createTab(initialUrl: String): WebView {
+        return WebView(context).apply {
+            setBackgroundColor(android.graphics.Color.WHITE)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.setGeolocationEnabled(false)
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                    if (tabs.getOrNull(selectedTab) === view && !url.isNullOrBlank()) address = url
+                }
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (tabs.getOrNull(selectedTab) === view) pageTitle = view.title ?: "Bodex Browser"
+                }
+                override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
+                    val scheme = request.url.scheme?.lowercase()
+                    return scheme != "https" && scheme != "http"
+                }
+            }
+            webChromeClient = object : WebChromeClient() {
+                override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
+                    callback.invoke(origin, false, false)
+                }
+                override fun onPermissionRequest(request: PermissionRequest) { request.deny() }
+            }
+            loadUrl(initialUrl)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (tabs.isEmpty()) tabs.add(createTab("https://www.google.com"))
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            tabs.forEach { it.stopLoading(); it.destroy() }
+            tabs.clear()
+        }
+    }
+
+    Column(Modifier.fillMaxSize().background(Navy)) {
+        Row(
+            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("BODEX", color = Cyan, fontWeight = FontWeight.Black, fontSize = 18.sp)
+            Spacer(Modifier.weight(1f))
+            Text("VPN ●", color = Color(0xFF7FE0B0), fontSize = 12.sp)
+            TextButton(onClick = onBackToProxy) { Text("البروكسي", color = Muted) }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            OutlinedTextField(
+                value = address,
+                onValueChange = { address = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text("ابحث أو اكتب عنوان الموقع") },
+                shape = RoundedCornerShape(14.dp)
+            )
+            Button(onClick = {
+                val raw = address.trim()
+                val target = when {
+                    raw.startsWith("https://") || raw.startsWith("http://") -> raw
+                    raw.contains(".") && !raw.contains(" ") -> "https://$raw"
+                    else -> "https://www.google.com/search?q=" + android.net.Uri.encode(raw)
+                }
+                tabs.getOrNull(selectedTab)?.loadUrl(target)
+            }, enabled = address.isNotBlank(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) { Text("اذهب") }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            TextButton(onClick = { tabs.getOrNull(selectedTab)?.let { if (it.canGoBack()) it.goBack() } }) { Text("‹", fontSize = 24.sp, color = Color.White) }
+            TextButton(onClick = { tabs.getOrNull(selectedTab)?.let { if (it.canGoForward()) it.goForward() } }) { Text("›", fontSize = 24.sp, color = Color.White) }
+            TextButton(onClick = { tabs.getOrNull(selectedTab)?.reload() }) { Text("⟳", fontSize = 22.sp, color = Color.White) }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = {
+                tabs.add(createTab("https://www.google.com"))
+                selectedTab = tabs.lastIndex
+                address = "https://www.google.com"
+            }) { Text("+ تبويب", color = Cyan) }
+            TextButton(onClick = {
+                if (tabs.size > 1) {
+                    tabs.removeAt(selectedTab).apply { stopLoading(); destroy() }
+                    selectedTab = (selectedTab - 1).coerceAtLeast(0)
+                    address = tabs[selectedTab].url ?: "https://www.google.com"
+                } else {
+                    tabs.firstOrNull()?.loadUrl("https://www.google.com")
+                }
+            }) { Text("×", color = Color.White, fontSize = 20.sp) }
+            Text("${tabs.size}", color = Muted)
+        }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 38.dp).background(Panel).padding(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                TextButton(
+                    onClick = {
+                        selectedTab = index
+                        address = tab.url ?: "https://www.google.com"
+                        pageTitle = tab.title ?: "تبويب ${index + 1}"
+                    },
+                    modifier = Modifier.weight(1f).heightIn(max = 42.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = if (index == selectedTab) Cyan else Muted)
+                ) { Text(tab.title?.take(12)?.ifBlank { "تبويب ${index + 1}" } ?: "تبويب ${index + 1}", maxLines = 1, fontSize = 11.sp) }
+            }
+        }
+        if (tabs.isNotEmpty()) {
+            key(selectedTab) {
+                AndroidView(
+                    factory = { tabs[selectedTab] },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    update = { }
+                )
+            }
+        } else {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Cyan) }
+        }
+        Text(
+            pageTitle,
+            color = Muted,
+            fontSize = 10.sp,
+            maxLines = 1,
+            modifier = Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 4.dp)
+        )
     }
 }
 
