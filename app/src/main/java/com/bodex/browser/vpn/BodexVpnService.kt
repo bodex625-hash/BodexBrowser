@@ -11,7 +11,6 @@ import android.util.Log
 import hev.htproxy.TProxyService
 import java.io.File
 import java.io.IOException
-import java.math.BigInteger
 import java.net.Inet4Address
 import java.net.InetAddress
 
@@ -41,7 +40,7 @@ class BodexVpnService : VpnService() {
         try {
             createNotificationChannel()
             val notification = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Bodex Browser")
+                .setContentTitle("H.B Proxy")
                 .setContentText("جاري تشغيل اتصال SOCKS5")
                 .setSmallIcon(android.R.drawable.stat_sys_warning)
                 .setOngoing(true)
@@ -52,9 +51,7 @@ class BodexVpnService : VpnService() {
                 startForeground(NOTIFICATION_ID, notification)
             }
 
-            // Resolve the SOCKS5 endpoint before installing VPN routes. The
-            // endpoint itself must bypass TUN, while this app's WebView must
-            // remain inside TUN.
+            // Resolve the upstream SOCKS5 server before installing VPN routes.
             val proxyAddresses = InetAddress.getAllByName(host).distinctBy { it.hostAddress }
             if (proxyAddresses.isEmpty()) {
                 throw IllegalArgumentException("تعذر تحديد عنوان خادم SOCKS5")
@@ -62,18 +59,18 @@ class BodexVpnService : VpnService() {
             val proxyAddress = proxyAddresses.firstOrNull { it is Inet4Address } ?: proxyAddresses.first()
 
             val builder = Builder()
-                .setSession("Bodex SOCKS5")
+                .setSession("H.B Proxy SOCKS5")
                 .setMtu(1500)
                 .setBlocking(false)
                 .addAddress("198.18.0.1", 15)
                 .addAddress("fc00::1", 128)
-
-            // Route all IPv4/IPv6 traffic through the tunnel except the
-            // upstream SOCKS5 endpoint. This avoids excluding the whole app
-            // UID (which also excludes the embedded browser).
-            addDefaultRoutesExcept(builder, listOf(proxyAddress))
-            builder.addDnsServer("1.1.1.1")
-            builder.addDnsServer("2606:4700:4700::1111")
+                // This is a proxy-only app: exclude its own sockets so the
+                // upstream SOCKS5 connection cannot loop back into this TUN.
+                .addDisallowedApplication(packageName)
+                .addRoute("0.0.0.0", 0)
+                .addRoute("::", 0)
+                // Use HEV's mapped DNS endpoint; DNS is resolved through SOCKS5.
+                .addDnsServer("198.18.0.2")
 
             tun = builder.establish() ?: throw IllegalStateException("تعذر إنشاء واجهة VPN")
             val config = File(cacheDir, "bodex-socks5.conf")
@@ -86,16 +83,24 @@ class BodexVpnService : VpnService() {
                 append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 append("  port: ").append(port).append("\n")
                 append("  udp: 'udp'\n")
-                append("  udp-address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 if (user.isNotEmpty() && pass.isNotEmpty()) {
                     append("  username: \"").append(yaml(user)).append("\"\n")
                     append("  password: \"").append(yaml(pass)).append("\"\n")
                 }
+                append("mapdns:\n")
+                append("  address: 198.18.0.2\n")
+                append("  port: 53\n")
+                append("  network: 240.0.0.0\n")
+                append("  netmask: 240.0.0.0\n")
+                append("  cache-size: 10000\n")
+                append("misc:\n")
+                append("  log-file: \"").append(yaml(File(cacheDir, "hev-tunnel.log").absolutePath)).append("\"\n")
+                append("  log-level: debug\n")
             })
             if (!TProxyService.TProxyStartService(config.absolutePath, tun!!.fd)) {
                 throw IllegalStateException("محرك SOCKS5 لم يبدأ")
             }
-            Log.i(TAG, "SOCKS5 tunnel started")
+            Log.i(TAG, "SOCKS5 tunnel started; upstream=$host:$port")
             broadcastState(true, "متصل عبر SOCKS5")
         } catch (e: Exception) {
             Log.e(TAG, "VPN start failed", e)
@@ -121,39 +126,8 @@ class BodexVpnService : VpnService() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Bodex VPN", NotificationManager.IMPORTANCE_LOW))
+            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "H.B Proxy", NotificationManager.IMPORTANCE_LOW))
         }
-    }
-
-    private fun addDefaultRoutesExcept(builder: Builder, excluded: List<InetAddress>) {
-        fun addFamilyRoutes(addressBytes: Int) {
-            val bits = addressBytes * 8
-            val blocked = excluded
-                .filter { it.address.size == addressBytes }
-                .map { BigInteger(1, it.address) }
-                .toSet()
-
-            fun add(prefix: BigInteger, prefixLength: Int) {
-                val hasBlockedAddress = blocked.any { it.shiftRight(bits - prefixLength) == prefix }
-                if (!hasBlockedAddress) {
-                    val network = prefix.shiftLeft(bits - prefixLength)
-                    val raw = network.toByteArray()
-                    val address = ByteArray(addressBytes)
-                    val count = minOf(raw.size, addressBytes)
-                    System.arraycopy(raw, raw.size - count, address, addressBytes - count, count)
-                    builder.addRoute(InetAddress.getByAddress(address), prefixLength)
-                    return
-                }
-                if (prefixLength == bits) return
-                add(prefix.shiftLeft(1), prefixLength + 1)
-                add(prefix.shiftLeft(1).or(BigInteger.ONE), prefixLength + 1)
-            }
-
-            add(BigInteger.ZERO, 0)
-        }
-
-        addFamilyRoutes(4)
-        addFamilyRoutes(16)
     }
 
     private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
