@@ -86,6 +86,10 @@ class BodexVpnService : VpnService() {
                 append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 append("  port: ").append(port).append("\n")
                 append("  udp: 'udp'\n")
+                append("  pipeline: true\n")
+                append("  tcp-fastopen: true\n")
+                append("misc:\n")
+                append("  tcp-buffer-size: 131072\n")
                 append("  udp-address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 if (user.isNotEmpty() && pass.isNotEmpty()) {
                     append("  username: \"").append(yaml(user)).append("\"\n")
