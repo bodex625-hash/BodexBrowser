@@ -328,15 +328,19 @@ object LocalSocks5Relay {
                 portOffset = 16
             }
             3 -> {
+                // Avoid resolving a domain returned by the proxy here: that
+                // lookup would itself enter the TUN and recurse into this relay.
                 val length = tail[0].toInt() and 0xFF
-                address = InetAddress.getByName(String(tail, 1, length, Charsets.US_ASCII))
+                address = fallback
                 portOffset = 1 + length
             }
             else -> throw EOFException("Invalid upstream UDP relay address")
         }
         val port = ((tail[portOffset].toInt() and 0xFF) shl 8) or
             (tail[portOffset + 1].toInt() and 0xFF)
-        val usableAddress = if (address.isAnyLocalAddress) fallback else address
+        val unusableRelayAddress = address.isAnyLocalAddress || address.isLoopbackAddress ||
+            address.isSiteLocalAddress || address.isLinkLocalAddress
+        val usableAddress = if (unusableRelayAddress) fallback else address
         if (port == 0) throw EOFException("Upstream SOCKS5 returned an empty UDP relay port")
         return usableAddress to port
     }
