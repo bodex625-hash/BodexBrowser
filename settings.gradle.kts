@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "BodexBrowser"
-include(":app")
+include(":app", ":browser")
