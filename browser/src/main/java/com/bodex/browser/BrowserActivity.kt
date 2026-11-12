@@ -433,9 +433,20 @@ class BrowserActivity : Activity() {
 
     private fun isVpnActive(): Boolean {
         val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+        val vpnTransport = android.net.NetworkCapabilities.TRANSPORT_VPN
+
+        // activeNetwork can briefly point to the underlying Wi-Fi/mobile
+        // network while Android is publishing a newly connected VPN.
+        // Search all visible networks as well to avoid a false "VPN off".
+        val active = manager.activeNetwork
+        if (active != null) {
+            val activeCapabilities = manager.getNetworkCapabilities(active)
+            if (activeCapabilities?.hasTransport(vpnTransport) == true) return true
+        }
+
+        return manager.allNetworks.any { network ->
+            manager.getNetworkCapabilities(network)?.hasTransport(vpnTransport) == true
+        }
     }
 
     private fun confirmClearAllData() {
