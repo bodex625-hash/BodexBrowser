@@ -16,7 +16,7 @@ object ProxyLicenseManager {
     private const val PREFS = "proxy_license"
     private const val TOKEN = "license_token"
     private const val LAST_OK = "last_validation"
-    private const val CHECK_INTERVAL = 24L * 60 * 60 * 1000
+    private const val CHECK_INTERVAL = 6L * 60 * 60 * 1000
     private const val OFFLINE_GRACE = 72L * 60 * 60 * 1000
     private const val LEGACY_PACKAGE_ID = "com.hb.browser"
 
