@@ -244,7 +244,7 @@ class BrowserActivity : Activity() {
         }
     }
 
-    private fun createNewTab(initialUrl: String = "https://www.google.com") {
+    private fun createNewTab(initialUrl: String = "") {
         val instance = CefriumBrowser.createWithSurface(this, profile)
         instance.setJavaScriptEnabled(true)
         instance.setPinchToZoomEnabled(false)
@@ -275,6 +275,9 @@ class BrowserActivity : Activity() {
         }
         instance.setOnLoadingStateChangedListener { isLoading, _, _ ->
             runOnUiThread {
+                if (!isLoading && !isFinishing && !isDestroyed) {
+                    instance.setZoomLevel(zoomPercentToLevel(80))
+                }
                 if (activeTab?.id == tab.id && !isFinishing) {
                     progress.visibility = if (isLoading) View.VISIBLE else View.GONE
                 }
@@ -287,7 +290,9 @@ class BrowserActivity : Activity() {
             FrameLayout.LayoutParams(-1, -1)
         )
         selectTab(tab)
-        instance.loadUrl(initialUrl)
+        if (initialUrl.isNotBlank()) {
+            instance.loadUrl(initialUrl)
+        }
     }
 
     private fun selectTab(tab: BrowserTab) {
