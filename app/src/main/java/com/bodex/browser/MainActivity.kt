@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bodex.browser.vpn.BodexVpnService
+import com.bodex.browser.license.ProxyLicenseManager
+import android.widget.Toast
 
 private val Navy = Color(0xFF0B1220)
 private val Panel = Color(0xFF142238)
@@ -101,6 +103,11 @@ private fun ProxyHome() {
                         .putBoolean("connected", connected)
                         .putString("message", connectionMessage)
                         .apply()
+                    if (connected) {
+                        val browserIntent = context.packageManager.getLaunchIntentForPackage("com.hb.browser")
+                        browserIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        if (browserIntent != null) context.startActivity(browserIntent)
+                    }
                 }
             }
         }
@@ -135,6 +142,42 @@ private fun ProxyHome() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) startVpn()
+    }
+
+    val requestStart: () -> Unit = {
+        Thread {
+            val licenseState = ProxyLicenseManager.check(context)
+            (context as? Activity)?.runOnUiThread {
+                if (ProxyLicenseManager.isAllowed(licenseState)) {
+                    val permission = VpnService.prepare(context)
+                    if (permission == null) startVpn() else vpnPermission.launch(permission)
+                } else {
+                    try {
+                        val activation = Intent().setClassName(
+                            "com.hb.browser",
+                            "com.bodex.browser.ActivationActivity"
+                        )
+                        context.startActivity(activation)
+                    } catch (_: Exception) {
+                        Toast.makeText(
+                            context,
+                            "يجب تثبيت HB Browser لتفعيل الاشتراك أولاً",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    val openBrowser: () -> Unit = {
+        try {
+            val browserIntent = context.packageManager.getLaunchIntentForPackage("com.hb.browser")
+            if (browserIntent != null) context.startActivity(browserIntent)
+            else Toast.makeText(context, "HB Browser غير مثبت", Toast.LENGTH_LONG).show()
+        } catch (_: Exception) {
+            Toast.makeText(context, "تعذر فتح HB Browser", Toast.LENGTH_LONG).show()
+        }
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Navy) {
@@ -191,10 +234,7 @@ private fun ProxyHome() {
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
-                            onClick = {
-                                val permission = VpnService.prepare(context)
-                                if (permission == null) startVpn() else vpnPermission.launch(permission)
-                            },
+                            onClick = requestStart,
                             enabled = !connected && validConfig,
                             modifier = Modifier.weight(1f)
                         ) { Text("تشغيل البروكسي") }
@@ -214,6 +254,13 @@ private fun ProxyHome() {
                             enabled = connected,
                             modifier = Modifier.weight(1f)
                         ) { Text("إيقاف البروكسي") }
+                    }
+                    if (connected) {
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = openBrowser,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("فتح HB Browser") }
                     }
                 }
             }
