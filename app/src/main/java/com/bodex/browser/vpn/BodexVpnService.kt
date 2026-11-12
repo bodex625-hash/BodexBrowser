@@ -6,6 +6,10 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import com.bodex.browser.license.ProxyLicenseManager
+import java.util.concurrent.Executors
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import hev.htproxy.TProxyService
@@ -16,6 +20,20 @@ import java.net.InetAddress
 
 class BodexVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
+    private val worker = Executors.newSingleThreadExecutor()
+    private val monitorHandler = Handler(Looper.getMainLooper())
+    private val licenseMonitor = object : Runnable {
+        override fun run() {
+            worker.execute {
+                val state = ProxyLicenseManager.check(this@BodexVpnService)
+                if (!ProxyLicenseManager.isAllowed(state)) {
+                    stopTunnelWithMessage("انتهت صلاحية الاشتراك أو تم إيقافه")
+                } else {
+                    monitorHandler.postDelayed(this, 60L * 1000)
+                }
+            }
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -29,7 +47,23 @@ class BodexVpnService : VpnService() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                startTunnel(host, port, user, pass)
+                enterForeground()
+                worker.execute {
+                    val licenseState = ProxyLicenseManager.check(this, forceNetwork = true)
+                    if (ProxyLicenseManager.isAllowed(licenseState)) {
+                        startTunnel(host, port, user, pass)
+                        if (tun != null) {
+                            monitorHandler.removeCallbacks(licenseMonitor)
+                            monitorHandler.postDelayed(licenseMonitor, 60L * 1000)
+                        }
+                    } else {
+                        stopTunnelWithMessage(
+                            if (licenseState == ProxyLicenseManager.State.NEEDS_CODE)
+                                "فعّل الاشتراك من HB Browser أولاً"
+                            else "الاشتراك غير صالح أو منتهي"
+                        )
+                    }
+                }
             }
         }
         return START_NOT_STICKY
@@ -38,19 +72,6 @@ class BodexVpnService : VpnService() {
     private fun startTunnel(host: String, port: Int, user: String, pass: String) {
         if (tun != null) return
         try {
-            createNotificationChannel()
-            val notification = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("H.B Proxy")
-                .setContentText("جاري تشغيل اتصال SOCKS5")
-                .setSmallIcon(android.R.drawable.stat_sys_warning)
-                .setOngoing(true)
-                .build()
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-
             // Resolve the upstream SOCKS5 server before installing VPN routes.
             val proxyAddresses = InetAddress.getAllByName(host).distinctBy { it.hostAddress }
             if (proxyAddresses.isEmpty()) {
@@ -109,7 +130,28 @@ class BodexVpnService : VpnService() {
         }
     }
 
+    private fun enterForeground() {
+        createNotificationChannel()
+        val notification = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("H.B Proxy")
+            .setContentText("جاري التحقق من الاشتراك وتشغيل SOCKS5")
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun stopTunnelWithMessage(message: String) {
+        stopTunnel()
+        broadcastState(false, message)
+    }
+
     private fun stopTunnel() {
+        monitorHandler.removeCallbacks(licenseMonitor)
         try { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() } catch (_: Throwable) {}
         try { tun?.close() } catch (_: IOException) {}
         tun = null
@@ -119,8 +161,12 @@ class BodexVpnService : VpnService() {
     }
 
     private fun broadcastState(connected: Boolean, message: String) {
-        sendBroadcast(Intent(ACTION_STATE).setPackage(packageName)
-            .putExtra(EXTRA_CONNECTED, connected).putExtra(EXTRA_MESSAGE, message))
+        val stateIntent = Intent(ACTION_STATE)
+            .putExtra(EXTRA_CONNECTED, connected)
+            .putExtra(EXTRA_MESSAGE, message)
+        sendBroadcast(Intent(stateIntent).setPackage(packageName))
+        // Notify the separately packaged browser so it closes when the VPN drops.
+        sendBroadcast(Intent(stateIntent).setPackage("com.hb.browser"))
     }
 
     private fun createNotificationChannel() {
@@ -132,7 +178,12 @@ class BodexVpnService : VpnService() {
 
     private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
     override fun onRevoke() { stopTunnel(); super.onRevoke() }
-    override fun onDestroy() { stopTunnel(); super.onDestroy() }
+    override fun onDestroy() {
+        monitorHandler.removeCallbacks(licenseMonitor)
+        worker.shutdownNow()
+        stopTunnel()
+        super.onDestroy()
+    }
 
     companion object {
         const val ACTION_START = "com.bodex.browser.vpn.START"

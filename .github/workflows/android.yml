@@ -1,10 +1,11 @@
-
-name: Build Bodex Browser APK
+name: Build H.B Proxy and HB Browser APKs
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ feature/vpn-engine-integration ]
   push:
-    branches: [ main, master, feature/vpn-engine-integration ]
+    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
 
 permissions:
   contents: read
@@ -16,16 +17,16 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '9.7.1'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -33,7 +34,13 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+          # The published API 37 platform directory is named android-37.0,
+          # while AGP resolves compileSdk 37 through android-37.
+          if [ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" ] && [ ! -e "$ANDROID_SDK_ROOT/platforms/android-37" ]; then
+            ln -s android-37.0 "$ANDROID_SDK_ROOT/platforms/android-37"
+          fi
 
       - name: Download and verify Hev SOCKS5 tunnel AAR
         run: |
@@ -41,12 +48,19 @@ jobs:
           curl -fL --retry 3 -o app/libs/hev-socks5-tunnel.aar https://github.com/heiher/hev-socks5-tunnel/releases/download/2.19.3/hev-socks5-tunnel.aar
           echo "ab6c581e6157680cfe5687ee7bbdcf95405c006c2db3701879ec44b9e5f83836  app/libs/hev-socks5-tunnel.aar" | sha256sum -c -
 
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build both applications
+        run: gradle --no-daemon :app:assembleDebug :browser:assembleDebug
 
-      - name: Upload APK
+      - name: Upload H.B Proxy APK
         uses: actions/upload-artifact@v4
         with:
-          name: BodexBrowser-debug-apk
+          name: HB-Proxy-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload HB Browser APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HB-Browser-debug-apk
+          path: browser/build/outputs/apk/debug/browser-debug.apk
           if-no-files-found: error
