@@ -159,7 +159,7 @@ object LocalSocks5Relay {
                 if ((reply[1].toInt() and 0xFF) != 0) return
 
                 client.soTimeout = 0
-                upstream.soTimeout = 0
+                upstreamSocket.soTimeout = 0
                 workers.execute { pump(clientIn, upstreamOut, upstreamSocket) }
                 pump(upstreamIn, clientOut, client)
             } else {
