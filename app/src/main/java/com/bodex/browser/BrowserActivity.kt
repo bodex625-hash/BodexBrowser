@@ -206,15 +206,7 @@ class BrowserActivity : Activity() {
         })
         nav.addView(makeAction("↻", 40, 18) { activeTab?.browser?.reload() })
 
-        val engineLabel = TextView(this).apply {
-            text = "CHROMIUM"
-            setTextColor(gold)
-            textSize = 11f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
-        }
-        nav.addView(engineLabel)
+        nav.addView(View(this), LinearLayout.LayoutParams(0, dp(38), 1f))
         root.addView(nav)
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -256,8 +248,8 @@ class BrowserActivity : Activity() {
     private fun createNewTab(initialUrl: String = "https://www.google.com") {
         val instance = CefriumBrowser.createWithSurface(this, profile)
         instance.setJavaScriptEnabled(true)
-        instance.setPinchToZoomEnabled(true)
-        instance.setZoomLevel(zoomPercentToLevel(prefs.getInt("page_zoom", 80)))
+        instance.setPinchToZoomEnabled(false)
+        instance.setZoomLevel(zoomPercentToLevel(80))
 
         val tab = BrowserTab(nextTabId++, instance)
         instance.setOnUrlChangedListener { url ->
@@ -397,7 +389,6 @@ class BrowserActivity : Activity() {
             "عرض المفضلة",
             "سجل التصفح",
             "مسح جميع بيانات التصفح",
-            "تغيير زوم الصفحة",
             "إيقاف البروكسي والعودة"
         )
         AlertDialog.Builder(this)
@@ -408,8 +399,7 @@ class BrowserActivity : Activity() {
                     1 -> showBookmarks()
                     2 -> showHistory()
                     3 -> confirmClearAllData()
-                    4 -> showPageZoomDialog()
-                    5 -> stopProxyAndReturn()
+                    4 -> stopProxyAndReturn()
                 }
             }
             .show()
@@ -498,22 +488,6 @@ class BrowserActivity : Activity() {
     private fun zoomPercentToLevel(percent: Int): Double =
         kotlin.math.ln(percent / 100.0) / kotlin.math.ln(1.2)
 
-    private fun showPageZoomDialog() {
-        val levels = intArrayOf(80, 90, 100, 110, 125)
-        val current = prefs.getInt("page_zoom", 80)
-        val selected = levels.indexOf(current).let { if (it >= 0) it else 0 }
-        AlertDialog.Builder(this)
-            .setTitle("زوم صفحات الإنترنت")
-            .setSingleChoiceItems(levels.map { "$it%" }.toTypedArray(), selected) { dialog, which ->
-                val percent = levels[which]
-                prefs.edit().putInt("page_zoom", percent).apply()
-                tabs.forEach { it.browser.setZoomLevel(zoomPercentToLevel(percent)) }
-                Toast.makeText(this, "تم ضبط زوم الصفحة على $percent%", Toast.LENGTH_SHORT).show()
-                dialog.dismiss()
-            }
-            .setNegativeButton("إغلاق", null)
-            .show()
-    }
 
     private fun saveBookmark() {
         val url = activeTab?.browser?.url ?: return
