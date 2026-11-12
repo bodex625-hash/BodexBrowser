@@ -29,6 +29,8 @@ import android.widget.TextView
 import android.widget.Toast
 import com.cefrium.CefriumBrowser
 import com.cefrium.CefriumProfile
+import com.bodex.browser.vpn.BodexVpnService
+import com.bodex.browser.vpn.LocalSocks5Relay
 import java.util.concurrent.Executors
 
 class BrowserActivity : Activity() {
@@ -452,6 +454,7 @@ class BrowserActivity : Activity() {
         }
         tabs.clear()
         activeTab = null
+        prefs.edit().remove("history").apply()
         webContainer.removeAllViews()
         refreshTabStrip()
 
@@ -564,8 +567,12 @@ class BrowserActivity : Activity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(BodexVpnService.ACTION_STATE)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") registerReceiver(vpnStateReceiver, filter)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(vpnStateReceiver, filter)
+        }
     }
 
     override fun onStop() {
