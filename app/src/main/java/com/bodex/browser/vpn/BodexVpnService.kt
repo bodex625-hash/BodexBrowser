@@ -36,7 +36,14 @@ class BodexVpnService : VpnService() {
     }
 
     private fun startTunnel(host: String, port: Int, user: String, pass: String) {
-        if (tun != null) return
+        if (tun != null) {
+            val tunnelAlive = try { TProxyService.TProxyIsRunning() } catch (_: Throwable) { false }
+            if (tunnelAlive && LocalSocks5Relay.isRunning()) {
+                broadcastState(true, "متصل عبر SOCKS5")
+                return
+            }
+            stopTunnel()
+        }
         try {
             createNotificationChannel()
             val notification = Notification.Builder(this, CHANNEL_ID)
