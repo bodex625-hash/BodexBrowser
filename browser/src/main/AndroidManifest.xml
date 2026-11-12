@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <permission
+        android:name="com.hb.browser.permission.READ_LICENSE"
+        android:protectionLevel="signature" />
+    <application
+        android:name=".BodexApplication"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:label="HB Browser"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="false">
+        <activity
+            android:name=".ActivationActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".BrowserActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
+        <provider
+            android:name=".license.LicenseProvider"
+            android:authorities="com.hb.browser.license"
+            android:exported="true"
+            android:readPermission="com.hb.browser.permission.READ_LICENSE" />
+    </application>
+</manifest>
