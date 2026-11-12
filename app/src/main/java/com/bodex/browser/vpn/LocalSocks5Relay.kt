@@ -138,15 +138,16 @@ object LocalSocks5Relay {
                 return
             }
 
-            upstream = Socket()
+            val upstreamSocket = Socket()
+            upstream = upstreamSocket
             val service = vpnService ?: throw EOFException("VPN service is unavailable")
-            if (!service.protect(upstream)) {
+            if (!service.protect(upstreamSocket)) {
                 throw EOFException("Could not protect upstream TCP socket from VPN routing")
             }
-            upstream.connect(InetSocketAddress(upstreamHost, upstreamPort), CONNECT_TIMEOUT_MS)
-            upstream.soTimeout = HANDSHAKE_TIMEOUT_MS
-            val upstreamIn = DataInputStream(BufferedInputStream(upstream.getInputStream()))
-            val upstreamOut = BufferedOutputStream(upstream.getOutputStream())
+            upstreamSocket.connect(InetSocketAddress(upstreamHost, upstreamPort), CONNECT_TIMEOUT_MS)
+            upstreamSocket.soTimeout = HANDSHAKE_TIMEOUT_MS
+            val upstreamIn = DataInputStream(BufferedInputStream(upstreamSocket.getInputStream()))
+            val upstreamOut = BufferedOutputStream(upstreamSocket.getOutputStream())
             negotiateUpstream(upstreamIn, upstreamOut, username, password)
 
             if (command == 1) {
@@ -159,7 +160,6 @@ object LocalSocks5Relay {
 
                 client.soTimeout = 0
                 upstream.soTimeout = 0
-                val upstreamSocket = upstream
                 workers.execute { pump(clientIn, upstreamOut, upstreamSocket) }
                 pump(upstreamIn, clientOut, client)
             } else {
@@ -174,7 +174,7 @@ object LocalSocks5Relay {
                     return
                 }
 
-                val relay = parseRelayAddress(reply, upstream.inetAddress)
+                val relay = parseRelayAddress(reply, upstreamSocket.inetAddress)
                 val local = DatagramSocket(null)
                 local.reuseAddress = true
                 local.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0))
