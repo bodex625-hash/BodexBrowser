@@ -187,8 +187,8 @@ object LocalSocks5Relay {
             val clientSocket = client
 
             // Two independent pumps keep the full-duplex TCP stream flowing.
-            workers.execute { pump(clientSocket, upstreamSocket) }
-            pump(upstreamSocket, clientSocket)
+            workers.execute { pump(clientIn, upstreamOut, upstreamSocket) }
+            pump(upstreamIn, clientOut, clientSocket)
         } catch (_: Exception) {
             // Fail closed: never retry the destination directly.
         } finally {
@@ -197,10 +197,8 @@ object LocalSocks5Relay {
         }
     }
 
-    private fun pump(source: Socket, destination: Socket) {
+    private fun pump(input: InputStream, output: OutputStream, destination: Socket) {
         try {
-            val input: InputStream = source.getInputStream()
-            val output: OutputStream = destination.getOutputStream()
             val buffer = ByteArray(16 * 1024)
             while (true) {
                 val count = input.read(buffer)
