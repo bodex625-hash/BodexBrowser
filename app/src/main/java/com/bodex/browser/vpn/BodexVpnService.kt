@@ -49,7 +49,7 @@ class BodexVpnService : VpnService() {
                 }
                 enterForeground()
                 worker.execute {
-                    val licenseState = ProxyLicenseManager.check(this)
+                    val licenseState = ProxyLicenseManager.check(this, forceNetwork = true)
                     if (ProxyLicenseManager.isAllowed(licenseState)) {
                         startTunnel(host, port, user, pass)
                         if (tun != null) {
