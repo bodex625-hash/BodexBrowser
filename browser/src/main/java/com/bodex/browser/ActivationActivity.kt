@@ -50,14 +50,14 @@ class ActivationActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val title = TextView(this).apply {
-            text = "H.B Proxy"
+            text = "HB Browser"
             textSize = 25f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
         }
         val subtitle = TextView(this).apply {
-            text = "أدخل كود الاشتراك لتفعيل المتصفح"
+            text = "كود واحد يفعّل HB Browser و H.B Proxy"
             textSize = 15f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
@@ -74,7 +74,7 @@ class ActivationActivity : Activity() {
             background = rounded(panel, gold)
         }
         activateButton = Button(this).apply {
-            text = "تفعيل المتصفح"
+            text = "تفعيل الاشتراك"
             setTextColor(black)
             setBackgroundColor(gold)
             setOnClickListener { activate() }
@@ -141,7 +141,7 @@ class ActivationActivity : Activity() {
                 val expiry = ActivationManager.activate(this, code)
                 runOnUiThread {
                     if (!isFinishing) {
-                        Toast.makeText(this, "تم تفعيل التطبيق بنجاح", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "تم تفعيل الاشتراك للتطبيقين بنجاح", Toast.LENGTH_LONG).show()
                         status.text = "ينتهي الاشتراك: $expiry"
                         openProxy()
                     }
