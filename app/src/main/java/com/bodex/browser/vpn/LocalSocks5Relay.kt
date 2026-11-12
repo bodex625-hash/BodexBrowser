@@ -136,7 +136,7 @@ object LocalSocks5Relay {
             }
 
             // Negotiate the upstream proxy's supported authentication method.
-            upstreamOut.write(if (hasCredentials) byteArrayOf(5, 1, 2) else byteArrayOf(5, 1, 0))
+            upstreamOut.write(if (hasCredentials) byteArrayOf(5, 2, 0, 2) else byteArrayOf(5, 1, 0))
             upstreamOut.flush()
             val methodReply = ByteArray(2)
             upstreamIn.readFully(methodReply)
