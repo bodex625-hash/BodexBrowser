@@ -1,10 +1,9 @@
-
-name: Build Bodex Browser APK
+name: Build H.B Proxy and HB Browser APKs
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, feature/vpn-engine-integration ]
+    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
 
 permissions:
   contents: read
@@ -41,12 +40,19 @@ jobs:
           curl -fL --retry 3 -o app/libs/hev-socks5-tunnel.aar https://github.com/heiher/hev-socks5-tunnel/releases/download/2.19.3/hev-socks5-tunnel.aar
           echo "ab6c581e6157680cfe5687ee7bbdcf95405c006c2db3701879ec44b9e5f83836  app/libs/hev-socks5-tunnel.aar" | sha256sum -c -
 
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build both applications
+        run: gradle --no-daemon :app:assembleDebug :browser:assembleDebug
 
-      - name: Upload APK
+      - name: Upload H.B Proxy APK
         uses: actions/upload-artifact@v4
         with:
-          name: BodexBrowser-debug-apk
+          name: HB-Proxy-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload HB Browser APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HB-Browser-debug-apk
+          path: browser/build/outputs/apk/debug/browser-debug.apk
           if-no-files-found: error
