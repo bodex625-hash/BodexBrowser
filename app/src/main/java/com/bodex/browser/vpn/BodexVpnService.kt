@@ -25,11 +25,11 @@ class BodexVpnService : VpnService() {
     private val licenseMonitor = object : Runnable {
         override fun run() {
             worker.execute {
-                val state = ProxyLicenseManager.check(this@BodexVpnService, forceNetwork = true)
+                val state = ProxyLicenseManager.check(this@BodexVpnService)
                 if (!ProxyLicenseManager.isAllowed(state)) {
                     stopTunnelWithMessage("انتهت صلاحية الاشتراك أو تم إيقافه")
                 } else {
-                    monitorHandler.postDelayed(this, 6L * 60 * 60 * 1000)
+                    monitorHandler.postDelayed(this, 60L * 1000)
                 }
             }
         }
@@ -54,7 +54,7 @@ class BodexVpnService : VpnService() {
                         startTunnel(host, port, user, pass)
                         if (tun != null) {
                             monitorHandler.removeCallbacks(licenseMonitor)
-                            monitorHandler.postDelayed(licenseMonitor, 6L * 60 * 60 * 1000)
+                            monitorHandler.postDelayed(licenseMonitor, 60L * 1000)
                         }
                     } else {
                         stopTunnelWithMessage(
