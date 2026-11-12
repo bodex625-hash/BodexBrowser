@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.app.AlertDialog
-import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -53,11 +52,11 @@ class BrowserActivity : Activity() {
     private val licenseCheck = object : Runnable {
         override fun run() {
             licenseExecutor.execute {
-                val state = ActivationManager.check(this@MainActivity)
+                val state = ActivationManager.check(this@BrowserActivity)
                 if (state != ActivationManager.State.ACTIVE && state != ActivationManager.State.OFFLINE_GRACE) {
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
-                            startActivity(android.content.Intent(this@MainActivity, ActivationActivity::class.java))
+                            startActivity(android.content.Intent(this@BrowserActivity, ActivationActivity::class.java))
                             finish()
                         }
                     }
