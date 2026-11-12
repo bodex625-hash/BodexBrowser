@@ -13,6 +13,10 @@ import java.io.File
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 class BodexVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
@@ -110,12 +114,43 @@ class BodexVpnService : VpnService() {
             if (!TProxyService.TProxyStartService(config.absolutePath, tun!!.fd)) {
                 throw IllegalStateException("محرك SOCKS5 لم يبدأ")
             }
-            Log.i(TAG, "SOCKS5 tunnel and local Chromium relay started; upstream=$host:$port")
-            broadcastState(true, "متصل عبر SOCKS5")
+
+            // Do not report VPN as connected just because the TUN and HEV
+            // processes started. This socket belongs to this app and is
+            // intentionally NOT protected, so Android routes it through the
+            // TUN and the upstream SOCKS5 relay. A TLS handshake proves that
+            // an actual HTTPS connection traversed the tunnel.
+            verifyHttpsThroughTunnel()
+
+            Log.i(TAG, "SOCKS5 tunnel passed end-to-end HTTPS test; upstream=$host:$port")
+            broadcastState(true, "متصل والإنترنت يعمل عبر البروكسي")
         } catch (e: Exception) {
             Log.e(TAG, "VPN start failed", e)
             stopTunnel()
             broadcastState(false, e.message ?: "فشل تشغيل البروكسي")
+        }
+    }
+
+    private fun verifyHttpsThroughTunnel() {
+        var raw: Socket? = null
+        var tls: SSLSocket? = null
+        try {
+            raw = Socket()
+            // 1.1.1.1 is a literal address: the connectivity probe does not
+            // depend on DNS and cannot silently test the phone's DNS path.
+            raw.connect(InetSocketAddress(InetAddress.getByName("1.1.1.1"), 443), 12_000)
+            tls = SSLSocketFactory.getDefault()
+                .createSocket(raw, "www.cloudflare.com", 443, true) as SSLSocket
+            tls.soTimeout = 12_000
+            tls.startHandshake()
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "بدأت خدمة VPN لكن فشل اختبار HTTPS عبر نفق البروكسي؛ تحقق من بيانات SOCKS5 ودعم TCP لدى الخادم",
+                e
+            )
+        } finally {
+            try { tls?.close() } catch (_: Exception) {}
+            try { raw?.close() } catch (_: Exception) {}
         }
     }
 
