@@ -10,5 +10,6 @@ class BodexApplication : Application() {
         // initializes Chromium; all browsing requests must use the fixed proxy.
         super.attachBaseContext(base)
         Cefrium.setComponentUpdatesEnabled(false)
+        Cefrium.setNetworkTimeQueriesEnabled(false)
     }
 }
