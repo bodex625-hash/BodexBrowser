@@ -100,7 +100,10 @@ class BodexVpnService : VpnService() {
             if (!TProxyService.TProxyStartService(config.absolutePath, tun!!.fd)) {
                 throw IllegalStateException("محرك SOCKS5 لم يبدأ")
             }
-            Log.i(TAG, "SOCKS5 tunnel started; upstream=$host:$port")
+            if (!LocalSocks5Relay.start(host, port, user, pass)) {
+                throw IllegalStateException("تعذر تشغيل وسيط SOCKS5 المحلي للمتصفح")
+            }
+            Log.i(TAG, "SOCKS5 tunnel and local Chromium relay started; upstream=$host:$port")
             broadcastState(true, "متصل عبر SOCKS5")
         } catch (e: Exception) {
             Log.e(TAG, "VPN start failed", e)
