@@ -65,10 +65,10 @@ private fun ProxyHome() {
     var username by remember { mutableStateOf(prefs.getString("proxy_username", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("proxy_password", "") ?: "") }
     var profileLabel by remember { mutableStateOf(prefs.getString("proxy_label", "My proxy") ?: "My proxy") }
-    var connected by remember { mutableStateOf(prefs.getBoolean("connected", false)) }
-    var connectionMessage by remember {
-        mutableStateOf(prefs.getString("message", "غير متصل") ?: "غير متصل")
-    }
+    // Do not trust the last saved UI flag after Android has killed the VPN service.
+    // A fresh START request re-attaches to an already-running service if it survived.
+    var connected by remember { mutableStateOf(false) }
+    var connectionMessage by remember { mutableStateOf("غير متصل") }
     var saved by remember { mutableStateOf(false) }
     var browserLaunched by remember { mutableStateOf(false) }
 
