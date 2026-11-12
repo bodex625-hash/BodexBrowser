@@ -87,17 +87,20 @@ class BrowserActivity : Activity() {
         }
 
         profile = CefriumProfile.getDefault()
-        val proxyApplied = profile.setProxy("socks5://127.0.0.1:${LocalSocks5Relay.PORT}")
-        if (!proxyApplied) {
-            Toast.makeText(this, "تعذر فرض البروكسي على محرك Chromium", Toast.LENGTH_LONG).show()
+        // Remove the old persistent Chromium SOCKS proxy setting. Chromium
+        // now opens ordinary TCP/UDP sockets, all captured by the full-route
+        // Android VPN and forwarded by HEV through the upstream SOCKS5 UDP relay.
+        if (!profile.clearProxy()) {
+            Toast.makeText(this, "تعذر إزالة إعداد البروكسي القديم من المتصفح", Toast.LENGTH_LONG).show()
             finish()
             return
         }
-        profile.setWebRtcIpHandlingPolicy(CefriumProfile.WEBRTC_DISABLE_NON_PROXIED_UDP)
-        profile.setProxyErrorListener { _, _, error, mainFrame ->
-            if (mainFrame && !isFinishing) {
-                Toast.makeText(this, "فشل اتصال البروكسي ($error)؛ لم يتم استخدام اتصال مباشر", Toast.LENGTH_LONG).show()
-            }
+        // Keep WebRTC UDP available: it is protected by the full-device TUN,
+        // rather than bypassing a browser-level SOCKS proxy.
+        if (!profile.setWebRtcIpHandlingPolicy(CefriumProfile.WEBRTC_DEFAULT_PUBLIC_INTERFACE_ONLY)) {
+            Toast.makeText(this, "تعذر ضبط سياسة WebRTC", Toast.LENGTH_LONG).show()
+            finish()
+            return
         }
 
         buildInterface()
