@@ -139,8 +139,8 @@ class BodexVpnService : VpnService() {
             // 1.1.1.1 is a literal address: the connectivity probe does not
             // depend on DNS and cannot silently test the phone's DNS path.
             raw.connect(InetSocketAddress(InetAddress.getByName("1.1.1.1"), 443), 12_000)
-            tls = SSLSocketFactory.getDefault()
-                .createSocket(raw, "www.cloudflare.com", 443, true) as SSLSocket
+            val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            tls = sslFactory.createSocket(raw, "www.cloudflare.com", 443, true) as SSLSocket
             tls.soTimeout = 12_000
             tls.startHandshake()
         } catch (e: Exception) {
