@@ -8,7 +8,7 @@ class BodexApplication : Application() {
     override fun attachBaseContext(base: Context) {
         // Disable the engine's component updater before its ContentProvider
         // initializes Chromium; all browsing requests must use the fixed proxy.
-        Cefrium.setComponentUpdatesEnabled(false)
         super.attachBaseContext(base)
+        Cefrium.setComponentUpdatesEnabled(false)
     }
 }
