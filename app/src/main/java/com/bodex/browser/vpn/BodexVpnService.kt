@@ -71,15 +71,22 @@ class BodexVpnService : VpnService() {
                 .setBlocking(false)
                 .addAddress("198.18.0.1", 15)
                 .addAddress("fc00::1", 128)
-                // This is a proxy-only app: exclude its own sockets so the
-                // upstream SOCKS5 connection cannot loop back into this TUN.
-                .addDisallowedApplication(packageName)
+                // Include this app in the TUN so Chromium TCP and UDP are
+                // both routed through HEV. The local SOCKS bridge protects its
+                // upstream TCP/UDP sockets before they reach the real proxy.
                 .addRoute("0.0.0.0", 0)
                 .addRoute("::", 0)
                 // Use HEV's mapped DNS endpoint; DNS is resolved through SOCKS5.
                 .addDnsServer("198.18.0.2")
 
             tun = builder.establish() ?: throw IllegalStateException("تعذر إنشاء واجهة VPN")
+            // The HEV engine connects only to the loopback bridge. The bridge
+            // authenticates to the real upstream SOCKS5 server and protects
+            // its TCP and UDP sockets from re-entering this VPN.
+            if (!LocalSocks5Relay.start(proxyAddress.hostAddress ?: host, port, user, pass, this)) {
+                throw IllegalStateException("تعذر تشغيل وسيط SOCKS5 المحلي")
+            }
+
             val config = File(cacheDir, "bodex-socks5.conf")
             config.writeText(buildString {
                 append("tunnel:\n")
@@ -87,13 +94,9 @@ class BodexVpnService : VpnService() {
                 append("  ipv4: 198.18.0.1\n")
                 append("  ipv6: 'fc00::1'\n")
                 append("socks5:\n")
-                append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
-                append("  port: ").append(port).append("\n")
+                append("  address: \"127.0.0.1\"\n")
+                append("  port: ").append(LocalSocks5Relay.PORT).append("\n")
                 append("  udp: 'udp'\n")
-                if (user.isNotEmpty() && pass.isNotEmpty()) {
-                    append("  username: \"").append(yaml(user)).append("\"\n")
-                    append("  password: \"").append(yaml(pass)).append("\"\n")
-                }
                 append("mapdns:\n")
                 append("  address: 198.18.0.2\n")
                 append("  port: 53\n")
@@ -107,9 +110,6 @@ class BodexVpnService : VpnService() {
             if (!TProxyService.TProxyStartService(config.absolutePath, tun!!.fd)) {
                 throw IllegalStateException("محرك SOCKS5 لم يبدأ")
             }
-            if (!LocalSocks5Relay.start(proxyAddress.hostAddress ?: host, port, user, pass)) {
-                throw IllegalStateException("تعذر تشغيل وسيط SOCKS5 المحلي للمتصفح")
-            }
             Log.i(TAG, "SOCKS5 tunnel and local Chromium relay started; upstream=$host:$port")
             broadcastState(true, "متصل عبر SOCKS5")
         } catch (e: Exception) {
@@ -121,6 +121,7 @@ class BodexVpnService : VpnService() {
 
     private fun stopTunnel() {
         try { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() } catch (_: Throwable) {}
+        try { LocalSocks5Relay.stop() } catch (_: Throwable) {}
         try { tun?.close() } catch (_: IOException) {}
         tun = null
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
