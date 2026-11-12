@@ -70,6 +70,7 @@ private fun ProxyHome() {
         mutableStateOf(prefs.getString("message", "غير متصل") ?: "غير متصل")
     }
     var saved by remember { mutableStateOf(false) }
+    var browserLaunched by remember { mutableStateOf(false) }
 
     fun persistSettings(
         newHost: String = host,
@@ -101,6 +102,12 @@ private fun ProxyHome() {
                         .putBoolean("connected", connected)
                         .putString("message", connectionMessage)
                         .apply()
+                    if (connected && !browserLaunched) {
+                        browserLaunched = true
+                        context.startActivity(Intent(context, BrowserActivity::class.java))
+                    } else if (!connected) {
+                        browserLaunched = false
+                    }
                 }
             }
         }
@@ -214,6 +221,12 @@ private fun ProxyHome() {
                             enabled = connected,
                             modifier = Modifier.weight(1f)
                         ) { Text("إيقاف البروكسي") }
+                    }
+                    if (connected) {
+                        OutlinedButton(
+                            onClick = { context.startActivity(Intent(context, BrowserActivity::class.java)) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("فتح المتصفح") }
                     }
                 }
             }
