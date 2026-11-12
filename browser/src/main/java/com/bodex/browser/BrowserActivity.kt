@@ -547,7 +547,7 @@ class BrowserActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        val filter = IntentFilter(BodexVpnService.ACTION_STATE)
+        val filter = IntentFilter("com.bodex.browser.vpn.STATE")
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
