@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.bodex.browser"
-    compileSdk = 37
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.hb.browser"
