@@ -183,7 +183,7 @@ object LocalSocks5Relay {
 
             client.soTimeout = 0
             upstream.soTimeout = 0
-            val upstreamSocket = upstream
+            val upstreamSocket = upstream ?: throw EOFException("Upstream socket unavailable")
             val clientSocket = client
 
             // Two independent pumps keep the full-duplex TCP stream flowing.
