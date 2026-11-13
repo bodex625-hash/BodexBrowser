@@ -139,29 +139,31 @@ public sealed class HevProcessHost : IAsyncDisposable
     {
         if (_process is not null)
         {
-            try
-            {
-                if (!_process.HasExited)
-                {
-                    _process.Kill(entireProcessTree: true);
-                    await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-                }
-            }
-            catch (InvalidOperationException) { }
-            catch (System.ComponentModel.Win32Exception) { }
-            finally
-            {
-                _process.Dispose();
-                _process = null;
-            }
+            // Never discard the process handle or its credential-bearing config
+            // until Windows confirms that the tunnel process has exited.
+            if (!_process.HasExited)
+                _process.Kill(entireProcessTree: true);
+
+            await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            if (!_process.HasExited)
+                throw new TimeoutException("HEV is still running; its runtime configuration was retained for safe recovery.");
+
+            _process.Dispose();
+            _process = null;
         }
 
         if (_configPath is not null)
         {
-            try { File.Delete(_configPath); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            _configPath = null;
+            try
+            {
+                File.Delete(_configPath);
+                _configPath = null;
+            }
+            catch (FileNotFoundException)
+            {
+                _configPath = null;
+            }
+            // On any other deletion failure retain the path so cleanup can be retried.
         }
     }
 
