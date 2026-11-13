@@ -1,7 +1,8 @@
 using System.Diagnostics;
 using System.Net.NetworkInformation;
-using System.Security;
 using System.Text;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace HBProxy.Windows;
 
@@ -25,6 +26,32 @@ public sealed class HevProcessHost : IAsyncDisposable
 
     public bool IsRunning => _process is { HasExited: false };
 
+    private void RestrictRuntimeDirectory()
+    {
+        var currentUser = WindowsIdentity.GetCurrent().User
+            ?? throw new InvalidOperationException("Could not determine the current Windows user SID.");
+
+        var security = new DirectorySecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.SetOwner(currentUser);
+        security.AddAccessRule(new FileSystemAccessRule(
+            currentUser, FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+
+        new DirectoryInfo(_runtimeDirectory).SetAccessControl(security);
+    }
+
     public async Task StartAsync(Socks5Profile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -42,6 +69,7 @@ public sealed class HevProcessHost : IAsyncDisposable
                 throw new FileNotFoundException("The HEV engine and matching x64 wintun.dll must be installed beside HBProxy.exe.");
 
             Directory.CreateDirectory(_runtimeDirectory);
+            RestrictRuntimeDirectory();
             _configPath = Path.Combine(_runtimeDirectory, "hev-runtime.yml");
             await File.WriteAllTextAsync(_configPath, HevConfigWriter.Build(profile), new UTF8Encoding(false), cancellationToken);
 
