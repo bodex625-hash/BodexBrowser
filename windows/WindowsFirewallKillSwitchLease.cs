@@ -56,10 +56,16 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
 
         var v4Blocked = ComplementCidr(32, v4Excluded);
         var v6Blocked = ComplementCidr(128, v6Excluded);
-        var dnsV4Blocked = ComplementCidr(32, upstreamServer.AddressFamily == AddressFamily.InterNetwork
-            ? new[] { upstreamServer + "/32" } : Array.Empty<string>());
-        var dnsV6Blocked = ComplementCidr(128, upstreamServer.AddressFamily == AddressFamily.InterNetworkV6
-            ? new[] { upstreamServer + "/128" } : Array.Empty<string>());
+        // Windows Defender Firewall accepts the special "Any" token more
+        // reliably than an all-address CIDR (0.0.0.0/0 or ::/0) for port rules.
+        // When the SOCKS endpoint is IPv4, all IPv6 DNS must be blocked (and
+        // vice versa); when it shares the family, exempt only the SOCKS host.
+        var dnsV4Blocked = upstreamServer.AddressFamily == AddressFamily.InterNetwork
+            ? ComplementCidr(32, new[] { upstreamServer + "/32" })
+            : new[] { "Any" };
+        var dnsV6Blocked = upstreamServer.AddressFamily == AddressFamily.InterNetworkV6
+            ? ComplementCidr(128, new[] { upstreamServer + "/128" })
+            : new[] { "Any" };
 
         var group = "Bodex.HBProxy.KillSwitch." + Guid.NewGuid().ToString("N");
         var script = new System.Text.StringBuilder();
