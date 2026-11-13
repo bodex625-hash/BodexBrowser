@@ -22,8 +22,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Build and publish desktop shell
-        run: dotnet publish windows/HBProxy.Windows.csproj -c Release -r win-x64 --self-contained false -o publish
+      - name: Build and publish self-contained desktop app
+        run: dotnet publish windows/HBProxy.Windows.csproj -c Release -r win-x64 --self-contained true -o publish
       - name: Download pinned HEV engine and Wintun
         uses: actions/download-artifact@v4
         with:
