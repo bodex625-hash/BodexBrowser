@@ -11,8 +11,8 @@ android {
         applicationId = "com.hb.browser"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.1.0-companion"
+        versionCode = 6
+        versionName = "1.1.1"
         buildConfigField("String", "HB_LICENSE_API", "\"https://hb-browser-license.bodex625.workers.dev/api\"")
         ndk { abiFilters += setOf("arm64-v8a") }
     }
