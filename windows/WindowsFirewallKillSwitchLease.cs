@@ -63,12 +63,14 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         // Keep the local DNS forwarder reachable while blocking every external
         // DNS destination. The loopback exclusions are essential: without them,
         // the DNS-specific rules also block Windows queries to 127.0.0.1 / ::1.
-        var dnsV4Blocked = upstreamServer.AddressFamily == AddressFamily.InterNetwork
-            ? ComplementCidr(32, new[] { upstreamServer + "/32", "127.0.0.0/8" })
-            : new[] { "Any" };
-        var dnsV6Blocked = upstreamServer.AddressFamily == AddressFamily.InterNetworkV6
-            ? ComplementCidr(128, new[] { upstreamServer + "/128", "::1/128" })
-            : new[] { "Any" };
+        var dnsV4Exemptions = new List<string> { "127.0.0.0/8" };
+        var dnsV6Exemptions = new List<string> { "::1/128" };
+        if (upstreamServer.AddressFamily == AddressFamily.InterNetwork)
+            dnsV4Exemptions.Add(upstreamServer + "/32");
+        else
+            dnsV6Exemptions.Add(upstreamServer + "/128");
+        var dnsV4Blocked = ComplementCidr(32, dnsV4Exemptions);
+        var dnsV6Blocked = ComplementCidr(128, dnsV6Exemptions);
 
         var group = "Bodex.HBProxy.KillSwitch." + Guid.NewGuid().ToString("N");
         var script = new System.Text.StringBuilder();
