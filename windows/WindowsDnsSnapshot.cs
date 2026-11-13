@@ -28,7 +28,8 @@ public sealed class WindowsDnsSnapshot
             "elseif ($familyName -in @('InterNetworkV6','IPv6','23')) {'IPv6'} else {$null}; " +
             "$index=0; [void][int]::TryParse([string]$_.InterfaceIndex,[ref]$index); " +
             "$alias=[string]$_.InterfaceAlias; " +
-            "if ($index -gt 0 -and -not [string]::IsNullOrWhiteSpace($alias) -and $null -ne $family) { " +
+            "$adapter=Get-NetAdapter -InterfaceIndex $index -ErrorAction SilentlyContinue; " +
+            "if ($index -gt 0 -and -not [string]::IsNullOrWhiteSpace($alias) -and $null -ne $family -and $null -ne $adapter -and $adapter.Status -eq 'Up' -and $adapter.Name -eq $alias -and $adapter.Name -ne 'HBProxy' -and $adapter.Name -notlike 'Loopback*') { " +
             "[pscustomobject]@{InterfaceIndex=$index;InterfaceAlias=$alias;" +
             "AddressFamily=$family;ServerAddresses=@($_.ServerAddresses | Where-Object { " +
             "$null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })} " +
