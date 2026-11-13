@@ -123,7 +123,7 @@ public sealed class WindowsDnsLease : IAsyncDisposable
             commands.Add(
                 identity +
                 "if($null -ne $a -and $a.Status -eq 'Up') { " +
-                "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses @('127.0.0.1','::1') -ErrorAction Stop; " +
+                "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses @('127.0.0.1') -ErrorAction Stop; Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses @('::1') -ErrorAction Stop; " +
                 "$changed++ }");
         }
         commands.Add("if($changed -lt 1) { throw 'No captured network adapter is currently active; DNS was not changed.' };");
