@@ -41,7 +41,7 @@ class ActivationActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(24, 24, 24, 24)
+            setPadding(16, 24, 16, 24)
             setBackgroundColor(black)
         }
         val logo = TextView(this).apply {
@@ -70,6 +70,12 @@ class ActivationActivity : Activity() {
             textSize = 21f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setSingleLine(true)
+            maxLines = 1
+            setHorizontallyScrolling(true)
+            textDirection = android.view.View.TEXT_DIRECTION_LTR
+            textAlignment = android.view.View.TEXT_ALIGNMENT_CENTER
+            minWidth = 0
+            minimumWidth = 0
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
             imeOptions = EditorInfo.IME_ACTION_DONE
@@ -109,7 +115,7 @@ class ActivationActivity : Activity() {
         root.addView(logo, LinearLayout.LayoutParams(-1, 68))
         root.addView(title, LinearLayout.LayoutParams(-1, -2))
         root.addView(subtitle, LinearLayout.LayoutParams(-1, -2))
-        root.addView(codeInput, LinearLayout.LayoutParams(-1, 70))
+        root.addView(codeInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 76))
         root.addView(activateButton, LinearLayout.LayoutParams(-1, 60).apply {
             topMargin = 16
         })
