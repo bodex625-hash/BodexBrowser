@@ -71,6 +71,13 @@ public sealed class HevProcessHost : IAsyncDisposable
             if (IsRunning)
                 throw new InvalidOperationException("The HEV tunnel process is already running.");
 
+            // A previous unexpected exit may have left cleanup pending. Never
+            // overwrite those handles or leases; finish rollback first.
+            if (_process is not null || _tunnelDefaultRouteLease is not null ||
+                _tunnelDnsLease is not null || _firewallLease is not null ||
+                _upstreamRouteLease is not null || _configPath is not null)
+                await StopCoreAsync();
+
             var executable = Path.Combine(AppContext.BaseDirectory, "hev-socks5-tunnel.exe");
             var wintun = Path.Combine(AppContext.BaseDirectory, "wintun.dll");
             if (!File.Exists(executable) || !File.Exists(wintun))
