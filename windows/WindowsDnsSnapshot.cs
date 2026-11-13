@@ -29,7 +29,7 @@ public sealed class WindowsDnsSnapshot
             "$index=0; [void][int]::TryParse([string]$_.InterfaceIndex,[ref]$index); " +
             "$alias=[string]$_.InterfaceAlias; " +
             "$adapter=Get-NetAdapter -InterfaceIndex $index -ErrorAction SilentlyContinue; " +
-            "$guid=if($null -ne $adapter) { $adapter.InterfaceGuid.ToString('B') } else { '' }; " +
+            "$guid=if($null -ne $adapter -and $null -ne $adapter.InterfaceGuid) { '{' + ([string]$adapter.InterfaceGuid).Trim('{}') + '}' } else { '' }; " +
             "$registryPath=if($family -eq 'IPv4') { 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\' + $guid } else { 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters\\Interfaces\\' + $guid }; " +
             "$staticNameServer=[string](Get-ItemProperty -Path $registryPath -Name NameServer -ErrorAction SilentlyContinue).NameServer; " +
             "$isStatic=-not [string]::IsNullOrWhiteSpace($staticNameServer); " +
