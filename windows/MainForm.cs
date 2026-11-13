@@ -311,7 +311,8 @@ public sealed class MainForm : Form
             _connectionEstablished = true;
             _udp.Enabled = false;
             _connect.Text = "DISCONNECT";
-            _udp.Checked = _host.UdpEnabled;\n            _status.Text = "CONNECTED  •  ALL WINDOWS APPS ROUTED  •  " + (_host.UdpEnabled ? "TCP + UDP" : "TCP ONLY  •  UDP NOT SUPPORTED");
+            _udp.Checked = _host.UdpEnabled;
+            _status.Text = "CONNECTED  •  ALL WINDOWS APPS ROUTED  •  " + (_host.UdpEnabled ? "TCP + UDP" : "TCP ONLY  •  UDP NOT SUPPORTED");
             _status.ForeColor = Color.FromArgb(80, 210, 160);
         }
         catch (Exception ex)
