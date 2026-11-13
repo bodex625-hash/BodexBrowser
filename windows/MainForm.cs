@@ -18,6 +18,7 @@ public sealed class MainForm : Form
     private readonly ProxyBridgeEngineHost _host = new();
     private Socks5DnsForwarder? _dnsForwarder;
     private WindowsDnsLease? _dnsLease;
+    private WindowsFirewallKillSwitchLease? _killSwitch;
     private readonly System.Windows.Forms.Timer _healthTimer = new() { Interval = 1000 };
     private bool _connectionEstablished;
     private bool _allowClose;
@@ -48,16 +49,7 @@ public sealed class MainForm : Form
             _healthTimer.Stop();
             try
             {
-                if (_dnsLease is not null)
-                {
-                    await _dnsLease.ReleaseAsync();
-                    _dnsLease = null;
-                }
-                if (_dnsForwarder is not null)
-                {
-                    await _dnsForwarder.DisposeAsync();
-                    _dnsForwarder = null;
-                }
+                await StopNetworkSessionAsync();
                 await _host.DisposeAsync();
                 _allowClose = true;
                 BeginInvoke(new Action(Close));
@@ -299,22 +291,11 @@ public sealed class MainForm : Form
         _connect.Enabled = false;
         try
         {
-            if (_connectionEstablished)
+            if (_connectionEstablished || HasNetworkSessionResources())
             {
-                _status.Text = "DISCONNECTING  •  RESTORING NETWORK";
+                _status.Text = "DISCONNECTING  •  STOPPING ENGINE AND RESTORING NETWORK";
                 _status.ForeColor = Color.FromArgb(255, 194, 92);
-                if (_dnsLease is not null)
-                {
-                    await _dnsLease.ReleaseAsync();
-                    _dnsLease = null;
-                }
-                if (_dnsForwarder is not null)
-                {
-                    await _dnsForwarder.DisposeAsync();
-                    _dnsForwarder = null;
-                }
-                await _host.StopAsync();
-                _connectionEstablished = false;
+                await StopNetworkSessionAsync();
                 _udp.Enabled = true;
                 _connect.Text = "CONNECT";
                 _status.Text = "DISCONNECTED  •  PROXY ENGINE STOPPED";
@@ -330,6 +311,10 @@ public sealed class MainForm : Form
             _status.ForeColor = Color.FromArgb(255, 194, 92);
             _dnsForwarder = new Socks5DnsForwarder(profile);
             await _dnsForwarder.StartAsync();
+            // Keep public traffic blocked unless it is addressed to the configured
+            // SOCKS5 endpoint. This remains active if the interception engine exits.
+            _killSwitch = await WindowsFirewallKillSwitchLease.AcquireAsync(
+                IPAddress.Parse(profile.ServerAddress));
             await _host.StartAsync(profile);
             _status.Text = "CONNECTING  •  CONFIGURING PRIVATE DNS OVER SOCKS5";
             _dnsLease = await WindowsDnsLease.AcquireAsync();
@@ -351,17 +336,7 @@ public sealed class MainForm : Form
             var cleanupSucceeded = false;
             try
             {
-                if (_dnsLease is not null)
-                {
-                    await _dnsLease.ReleaseAsync();
-                    _dnsLease = null;
-                }
-                if (_dnsForwarder is not null)
-                {
-                    await _dnsForwarder.DisposeAsync();
-                    _dnsForwarder = null;
-                }
-                await _host.StopAsync();
+                await StopNetworkSessionAsync();
                 cleanupSucceeded = true;
             }
             catch (Exception cleanupError)
@@ -369,12 +344,12 @@ public sealed class MainForm : Form
                 reportedError = new AggregateException(ex, cleanupError);
             }
 
-            _connectionEstablished = false;
-            _udp.Enabled = true;
-            _connect.Text = "CONNECT";
+            _connectionEstablished = !cleanupSucceeded && HasNetworkSessionResources();
+            _udp.Enabled = !_connectionEstablished;
+            _connect.Text = _connectionEstablished ? "RETRY CLEANUP" : "CONNECT";
             _status.Text = cleanupSucceeded
                 ? "CONNECTION FAILED  •  NETWORK RESTORED"
-                : "CLEANUP FAILED  •  NETWORK PROTECTION RETAINED";
+                : "CLEANUP FAILED  •  KILL SWITCH RETAINED";
             _status.ForeColor = Color.FromArgb(255, 110, 110);
             ShowDiagnosticError(reportedError, "H.B Proxy connection diagnostics");
         }
@@ -457,6 +432,36 @@ public sealed class MainForm : Form
         dialog.ShowDialog(this);
     }
 
+    private bool HasNetworkSessionResources() =>
+        _host.IsRunning || _dnsLease is not null || _dnsForwarder is not null || _killSwitch is not null;
+
+    private async Task StopNetworkSessionAsync()
+    {
+        // Stop interception first. The firewall kill switch remains installed
+        // until DNS has been restored and the local forwarder has stopped.
+        await _host.StopAsync();
+
+        if (_dnsLease is not null)
+        {
+            await _dnsLease.ReleaseAsync();
+            _dnsLease = null;
+        }
+
+        if (_dnsForwarder is not null)
+        {
+            await _dnsForwarder.DisposeAsync();
+            _dnsForwarder = null;
+        }
+
+        if (_killSwitch is not null)
+        {
+            await _killSwitch.ReleaseAsync();
+            _killSwitch = null;
+        }
+
+        _connectionEstablished = false;
+    }
+
     private async Task CheckTunnelHealthAsync()
     {
         if (!_connectionEstablished || _host.IsRunning)
@@ -465,18 +470,8 @@ public sealed class MainForm : Form
         _healthTimer.Stop();
         try
         {
-            if (_dnsLease is not null)
-            {
-                await _dnsLease.ReleaseAsync();
-                _dnsLease = null;
-            }
-            if (_dnsForwarder is not null)
-            {
-                await _dnsForwarder.DisposeAsync();
-                _dnsForwarder = null;
-            }
+            await StopNetworkSessionAsync();
 
-            _connectionEstablished = false;
             _udp.Enabled = true;
             _connect.Text = "CONNECT";
             _status.Text = "PROXY ENGINE STOPPED  •  DNS RESTORED";
