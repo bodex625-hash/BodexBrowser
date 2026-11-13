@@ -81,7 +81,7 @@ class BodexVpnService : VpnService() {
 
             val builder = Builder()
                 .setSession("H.B Proxy SOCKS5")
-                .setMtu(1500)
+                .setMtu(1000)
                 .setBlocking(false)
                 .addAddress("198.18.0.1", 15)
                 // Exclude this app's own sockets to prevent an upstream routing loop.
@@ -94,7 +94,7 @@ class BodexVpnService : VpnService() {
             val config = File(cacheDir, "bodex-socks5.conf")
             config.writeText(buildString {
                 append("tunnel:\n")
-                append("  mtu: 1500\n")
+                append("  mtu: 1000\n")
                 append("  ipv4: 198.18.0.1\n")
                 append("socks5:\n")
                 append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
