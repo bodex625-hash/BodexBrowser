@@ -169,9 +169,19 @@ public sealed class HevProcessHost : IAsyncDisposable
 
             throw new TimeoutException("HEV did not create the HBProxy network interface within 15 seconds.");
         }
-        catch
+        catch (Exception startupError)
         {
-            await StopCoreAsync();
+            try
+            {
+                await StopCoreAsync();
+            }
+            catch (Exception cleanupError)
+            {
+                throw new AggregateException(
+                    "Tunnel startup failed, and network rollback also reported an error.",
+                    startupError, cleanupError);
+            }
+
             throw;
         }
         finally
