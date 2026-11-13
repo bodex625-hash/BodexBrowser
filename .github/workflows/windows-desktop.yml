@@ -2,7 +2,7 @@ name: Windows desktop build
 
 on:
   push:
-    branches: [feature/windows-proxy-client]
+    branches: [feature/hbproxy-proxifier-engine]
     paths:
       - "windows/**"
       - ".github/workflows/windows-desktop.yml"
@@ -10,34 +10,82 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   build-windows-x64:
     runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: Checkout H.B Proxy
         uses: actions/checkout@v4
+
+      - name: Checkout pinned ProxyBridge engine (MIT)
+        uses: actions/checkout@v4
+        with:
+          repository: InterceptSuite/ProxyBridge
+          ref: 8cb9dceeed582fcd7c2baed8d20eec34934732fc
+          path: external/ProxyBridge
+          persist-credentials: false
+
       - name: Install .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Build and publish self-contained desktop app
-        run: dotnet publish windows/HBProxy.Windows.csproj -c Release -r win-x64 --self-contained true -o publish
-      - name: Download pinned HEV engine and Wintun
-        uses: actions/download-artifact@v4
-        with:
-          name: hev-windows-x64-engine
-          repository: bodex625-hash/BodexBrowser
-          run-id: 43454551076
-          github-token: ${{ github.token }}
-          path: engine
-      - name: Package HEV engine beside the application
+
+      - name: Download and verify WinDivert 2.2.2-A
         shell: pwsh
-        run: Copy-Item -Path "engine/*" -Destination "publish/" -Recurse -Force
-      - name: Upload Windows desktop build
+        run: |
+          $url = "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip"
+          $expectedHash = "63CB41763BB4B20F600B6DE04E991A9C2BE73279E317D4D82F237B150C5F3F15"
+          Invoke-WebRequest -Uri $url -OutFile "WinDivert.zip" -UseBasicParsing
+          $actualHash = (Get-FileHash "WinDivert.zip" -Algorithm SHA256).Hash
+          if ($actualHash -ne $expectedHash) {
+            throw "WinDivert SHA256 mismatch. Expected $expectedHash, got $actualHash"
+          }
+          Expand-Archive -Path "WinDivert.zip" -DestinationPath "C:\"
+
+      - name: Build pinned ProxyBridge native engine
+        shell: pwsh
+        run: |
+          Set-Location "external/ProxyBridge/Windows"
+          .\compile.ps1 -NoSign
+          $required = @(
+            "output/ProxyBridgeCore.dll",
+            "output/WinDivert.dll",
+            "output/WinDivert64.sys"
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) { throw "Missing native engine dependency: $file" }
+          }
+
+      - name: Publish H.B Proxy
+        run: dotnet publish windows/HBProxy.Windows.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Bundle native engine and third-party notices
+        shell: pwsh
+        run: |
+          $native = "external/ProxyBridge/Windows/output"
+          Copy-Item "$native/ProxyBridgeCore.dll" "publish/"
+          Copy-Item "$native/WinDivert.dll" "publish/"
+          Copy-Item "$native/WinDivert64.sys" "publish/"
+          New-Item -ItemType Directory -Force "publish/THIRD-PARTY-NOTICES" | Out-Null
+          Copy-Item "external/ProxyBridge/LICENSE" "publish/THIRD-PARTY-NOTICES/ProxyBridge-LICENSE.txt"
+          if (Test-Path "C:/WinDivert-2.2.2-A/LICENSE") {
+            Copy-Item "C:/WinDivert-2.2.2-A/LICENSE" "publish/THIRD-PARTY-NOTICES/WinDivert-LICENSE.txt"
+          }
+
+      - name: Verify publish contents
+        shell: pwsh
+        run: |
+          $required = @("HBProxy.exe", "ProxyBridgeCore.dll", "WinDivert.dll", "WinDivert64.sys")
+          foreach ($file in $required) {
+            if (-not (Test-Path "publish/$file")) { throw "Publish output is missing $file" }
+          }
+          Get-ChildItem publish -File | Select-Object Name, Length
+
+      - name: Upload Windows x64 build
         uses: actions/upload-artifact@v4
         with:
-          name: hb-proxy-windows-x64-shell
+          name: hb-proxy-windows-x64-proxifier
           path: publish/**
           if-no-files-found: error
+          retention-days: 30
