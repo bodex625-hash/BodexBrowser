@@ -27,7 +27,7 @@ public sealed class TunnelDnsLease : IAsyncDisposable
             "$adapter=@(Get-NetAdapter -InterfaceIndex $idx -ErrorAction Stop); " +
             "if($adapter.Count -ne 1 -or $adapter[0].Name -ne 'HBProxy') { throw 'DNS can only be assigned to the dedicated HBProxy adapter.' }; " +
             "$dns=@('1.1.1.1','1.0.0.1','2606:4700:4700::1111','2606:4700:4700::1001'); " +
-            "Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $dns -Validate -ErrorAction Stop; " +
+            "Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $dns -ErrorAction Stop; " +
             "$check=@(Get-DnsClientServerAddress -InterfaceIndex $idx -ErrorAction Stop | ForEach-Object {$_.ServerAddresses} | Where-Object {$_ -in $dns}); " +
             "if($check.Count -lt 4) { throw 'The tunnel DNS resolver addresses could not be verified.' }; " +
             "Write-Output 'OK'";
