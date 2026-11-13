@@ -333,6 +333,7 @@ public sealed class MainForm : Form
             await _host.StartAsync(profile);
             _status.Text = "CONNECTING  •  CONFIGURING PRIVATE DNS OVER SOCKS5";
             _dnsLease = await WindowsDnsLease.AcquireAsync();
+            await _dnsForwarder.VerifyAsync();
             var dnsCheck = await Dns.GetHostAddressesAsync("example.com")
                 .WaitAsync(TimeSpan.FromSeconds(12));
             if (dnsCheck.Length == 0)
