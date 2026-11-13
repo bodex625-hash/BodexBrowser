@@ -38,7 +38,8 @@ public sealed class TunnelDefaultRouteLease : IAsyncDisposable
             "$v4='0.0.0.0/0'; $v6='::/0'; " +
             "$created4=$false; $created6=$false; " +
             "try { " +
-            "$interfaces=@(Get-NetIPInterface -InterfaceIndex $ifIndex -ErrorAction Stop); " +
+            "$allInterfaces=@(Get-NetIPInterface -PolicyStore ActiveStore -ErrorAction Stop); " +
+            "$interfaces=@($allInterfaces | Where-Object {$_.InterfaceIndex -eq $ifIndex}); " +
             "$i4=@($interfaces | Where-Object {$_.AddressFamily -eq 'IPv4'}); " +
             "$i6=@($interfaces | Where-Object {$_.AddressFamily -eq 'IPv6'}); " +
             "if ($i4.Count -ne 1 -or $i6.Count -ne 1) { throw 'The HBProxy interface is missing an IP family.' }; " +
