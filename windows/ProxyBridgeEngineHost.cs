@@ -71,12 +71,17 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
     public string LastDiagnostics => _lastDiagnostics;
 
     public Task StartAsync(Socks5Profile profile) =>
-        Task.Run(() => Start(profile));
+        Task.Run(() => Start(profile, null));
+
+    // Runs after the SOCKS5 reachability/authentication test and rule setup,
+    // but immediately before WinDivert starts intercepting packets.
+    public Task StartAsync(Socks5Profile profile, Action beforeNativeStart) =>
+        Task.Run(() => Start(profile, beforeNativeStart));
 
     public Task StopAsync() =>
         Task.Run(Stop);
 
-    private void Start(Socks5Profile profile)
+    private void Start(Socks5Profile profile, Action? beforeNativeStart)
     {
         if (_running)
             throw new InvalidOperationException("ProxyBridge is already running.");
@@ -152,11 +157,15 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                     throw new InvalidOperationException("ProxyBridge could not create the default fail-closed TCP/UDP rules.");
             }
 
-            startAttempted = true;
+            // The firewall lease is installed here, after the proxy test has
+            // completed its local DNS lookup, but before any app packets are captured.
+            beforeNativeStart?.Invoke();
+
             if (_start!() == 0)
                 throw new InvalidOperationException(
                     "ProxyBridge could not start WinDivert. Run H.B Proxy as Administrator and check that the Windows driver is present.");
 
+            startAttempted = true;
             _running = true;
         }
         catch
@@ -164,7 +173,10 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             bool stopped = true;
             if (startAttempted)
             {
-                try { stopped = _stop?.Invoke() != 0; }
+                // ProxyBridge_Stop returns FALSE when the native engine is
+                // already stopped; either a TRUE result or a clean FALSE result
+                // means the DLL is no longer executing its interception threads.
+                try { _stop?.Invoke(); }
                 catch { stopped = false; }
             }
 
@@ -220,8 +232,10 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             return;
         }
 
-        if (_stop?.Invoke() == 0)
-            throw new InvalidOperationException("ProxyBridge did not confirm that the interception engine stopped.");
+        // The native API returns FALSE if it has already stopped (for example,
+        // after an unexpected engine exit). That is a stopped state, not a reason
+        // to keep the DLL loaded forever.
+        _stop?.Invoke();
 
         _running = false;
         _udpEnabled = false;
