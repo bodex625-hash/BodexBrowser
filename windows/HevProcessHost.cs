@@ -17,6 +17,7 @@ public sealed class HevProcessHost : IAsyncDisposable
     private Process? _process;
     private string? _configPath;
     private UpstreamRouteLease? _upstreamRouteLease;
+    private TunnelDefaultRouteLease? _tunnelDefaultRouteLease;
     private WindowsNetworkSnapshot? _networkSnapshot;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -113,10 +114,25 @@ public sealed class HevProcessHost : IAsyncDisposable
                 if (_process.HasExited)
                     throw new InvalidOperationException($"HEV exited during startup (code {_process.ExitCode}).");
 
-                if (NetworkInterface.GetAllNetworkInterfaces().Any(n =>
+                var tunnelInterface = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n =>
                     string.Equals(n.Name, "HBProxy", StringComparison.OrdinalIgnoreCase) &&
-                    n.NetworkInterfaceType != NetworkInterfaceType.Loopback))
+                    n.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                    n.OperationalStatus == OperationalStatus.Up);
+                if (tunnelInterface is not null)
+                {
+                    var properties = tunnelInterface.GetIPProperties();
+                    var ipv4Index = properties.GetIPv4Properties()?.Index ?? 0;
+                    var ipv6Index = properties.GetIPv6Properties()?.Index ?? 0;
+                    if (ipv4Index <= 0 || ipv6Index <= 0 || ipv4Index != ipv6Index)
+                        throw new InvalidOperationException("The HBProxy adapter does not expose matching IPv4 and IPv6 interface indexes.");
+
+                    // The upstream SOCKS endpoint already has a physical host-route
+                    // lease. Only now install the tunnel defaults, after the HEV
+                    // adapter is present and confirmed up.
+                    _tunnelDefaultRouteLease = await TunnelDefaultRouteLease.AcquireAsync(
+                        ipv4Index, cancellationToken);
                     return;
+                }
 
                 await Task.Delay(250, cancellationToken);
             }
@@ -164,9 +180,17 @@ public sealed class HevProcessHost : IAsyncDisposable
             _process = null;
         }
 
-        // Release only the exact host route created by this process, and only
-        // after HEV has definitely exited. If cleanup fails, retain the lease
-        // and runtime config so a later StopAsync can retry safely.
+        // Restore the original routing choice by removing only the two exact
+        // default routes owned by the tunnel, after HEV has definitely exited.
+        // Keep the upstream bypass route until the tunnel defaults are gone.
+        if (_tunnelDefaultRouteLease is not null)
+        {
+            await _tunnelDefaultRouteLease.ReleaseAsync();
+            _tunnelDefaultRouteLease = null;
+        }
+
+        // Release only the exact host route created for the SOCKS endpoint.
+        // If cleanup fails, retain the lease and runtime config for retry.
         if (_upstreamRouteLease is not null)
         {
             await _upstreamRouteLease.ReleaseAsync();
@@ -187,7 +211,7 @@ public sealed class HevProcessHost : IAsyncDisposable
             // On any other deletion failure retain the path so cleanup can be retried.
         }
 
-        if (_process is null && _upstreamRouteLease is null && _configPath is null)
+        if (_process is null && _tunnelDefaultRouteLease is null && _upstreamRouteLease is null && _configPath is null)
             _networkSnapshot = null;
     }
 
