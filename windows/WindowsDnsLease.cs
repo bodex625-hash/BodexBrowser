@@ -140,6 +140,7 @@ public sealed class WindowsDnsLease : IAsyncDisposable
                 ? "$a=Get-NetAdapter -Name " + Quote(item.InterfaceAlias) + " -ErrorAction SilentlyContinue | Select-Object -First 1; "
                 : "$a=Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { ([string]$_.InterfaceGuid).Trim('{}') -eq " + Quote(item.InterfaceGuid.Trim('{', '}')) + " } | Select-Object -First 1; ";
             commands.Add(identity +
+                "if($null -eq $a) { throw 'Captured network adapter is not currently present; DNS recovery was not completed.'; }; " +
                 "if($null -ne $a) { " +
                 "$name=[string]$a.Name; " +
                 BuildNetshDnsRestore("ipv4", item.IPv4Static, item.IPv4ServerAddresses) +
