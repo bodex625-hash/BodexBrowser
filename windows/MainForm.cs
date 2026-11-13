@@ -1,23 +1,32 @@
 using System.Drawing;
+using System.Net;
 using System.Windows.Forms;
 
 namespace HBProxy.Windows;
 
 public sealed class MainForm : Form
 {
+    private readonly TextBox _server = new();
+    private readonly TextBox _port = new();
+    private readonly TextBox _username = new();
+    private readonly TextBox _password = new();
+    private readonly CheckBox _udp = new();
     private readonly Label _status = new();
     private readonly Button _connect = new();
+    private readonly CredentialStore _credentials = new();
+    private readonly ProfileSettingsStore _settings = new();
 
     public MainForm()
     {
         Text = "H.B Proxy";
-        MinimumSize = new Size(560, 560);
-        Size = new Size(620, 650);
+        MinimumSize = new Size(560, 650);
+        Size = new Size(620, 720);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(10, 18, 34);
         ForeColor = Color.FromArgb(225, 239, 255);
         Font = new Font("Segoe UI", 10F);
         BuildInterface();
+        LoadSavedProfile();
     }
 
     private void BuildInterface()
@@ -30,69 +39,98 @@ public sealed class MainForm : Form
             Padding = new Padding(28),
             BackColor = BackColor
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 82));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         Controls.Add(root);
 
-        var heading = new Label
+        root.Controls.Add(new Label
         {
             Text = "H.B PROXY",
             Dock = DockStyle.Fill,
             Font = new Font("Segoe UI", 23F, FontStyle.Bold),
             ForeColor = Color.FromArgb(58, 190, 255),
             TextAlign = ContentAlignment.MiddleLeft
-        };
-        root.Controls.Add(heading, 0, 0);
+        }, 0, 0);
 
-        var subtitle = new Label
+        root.Controls.Add(new Label
         {
             Text = "SECURE SOCKS5 TUNNEL  •  WINDOWS x64",
             Dock = DockStyle.Fill,
             Font = new Font("Segoe UI", 9F, FontStyle.Bold),
             ForeColor = Color.FromArgb(142, 177, 207),
-            TextAlign = ContentAlignment.TopLeft
-        };
-        root.Controls.Add(subtitle, 0, 1);
+            TextAlign = ContentAlignment.MiddleLeft
+        }, 0, 1);
 
-        var panel = new Panel
+        var panel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = Color.FromArgb(17, 31, 53),
-            Padding = new Padding(20)
+            Padding = new Padding(20),
+            ColumnCount = 2,
+            RowCount = 7
         };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 66));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        for (var i = 0; i < 4; i++)
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.Controls.Add(panel, 0, 2);
 
-        var title = new Label
+        var section = new Label
         {
-            Text = "Connection status",
-            Dock = DockStyle.Top,
-            Height = 34,
-            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-            ForeColor = Color.White
+            Text = "SOCKS5 SERVER SETTINGS",
+            Dock = DockStyle.Fill,
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+            TextAlign = ContentAlignment.MiddleLeft
         };
-        panel.Controls.Add(title);
+        panel.Controls.Add(section, 0, 0);
+        panel.SetColumnSpan(section, 2);
 
-        _status.Text = "ENGINE BUILT  •  WINDOWS TUNNEL INTEGRATION IN PROGRESS";
-        _status.Dock = DockStyle.Top;
-        _status.Height = 64;
+        AddField(panel, "Server IP", _server, 1, "e.g. 203.0.113.10");
+        AddField(panel, "Port", _port, 2, "1080");
+        AddField(panel, "Username", _username, 3, "Optional");
+        AddField(panel, "Password", _password, 4, "Optional");
+        _password.UseSystemPasswordChar = true;
+
+        _udp.Text = "Enable UDP support";
+        _udp.Checked = true;
+        _udp.Dock = DockStyle.Fill;
+        _udp.ForeColor = Color.FromArgb(210, 228, 245);
+        panel.Controls.Add(_udp, 1, 5);
+
+        var save = new Button
+        {
+            Text = "SAVE SETTINGS",
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(24, 112, 158),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
+        };
+        save.FlatAppearance.BorderSize = 0;
+        save.Click += (_, _) => SaveProfile();
+        panel.Controls.Add(save, 0, 6);
+        panel.SetColumnSpan(save, 2);
+
+        var statusPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(17, 31, 53),
+            Padding = new Padding(16, 8, 16, 8)
+        };
+        _status.Text = "SETUP ONLY  •  TUNNEL NOT CONNECTED";
+        _status.Dock = DockStyle.Fill;
         _status.ForeColor = Color.FromArgb(255, 194, 92);
         _status.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _status.TextAlign = ContentAlignment.MiddleLeft;
-        panel.Controls.Add(_status);
-
-        var note = new Label
-        {
-            Text = "The desktop interface is being prepared. Connection controls will be enabled only after Wintun, route protection, DNS handling and recovery checks are implemented.",
-            Dock = DockStyle.Top,
-            Height = 90,
-            ForeColor = Color.FromArgb(177, 198, 220),
-            Font = new Font("Segoe UI", 9.5F),
-            Padding = new Padding(0, 8, 0, 0)
-        };
-        panel.Controls.Add(note);
+        statusPanel.Controls.Add(_status);
+        root.Controls.Add(statusPanel, 0, 3);
 
         _connect.Text = "CONNECT";
         _connect.Dock = DockStyle.Fill;
@@ -102,16 +140,81 @@ public sealed class MainForm : Form
         _connect.FlatStyle = FlatStyle.Flat;
         _connect.FlatAppearance.BorderSize = 0;
         _connect.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
-        root.Controls.Add(_connect, 0, 3);
+        root.Controls.Add(_connect, 0, 4);
+    }
 
-        var footer = new Label
+    private static void AddField(TableLayoutPanel panel, string label, TextBox input, int row, string placeholder)
+    {
+        panel.Controls.Add(new Label
         {
-            Text = "H.B Proxy for Windows  •  Independent desktop edition",
+            Text = label,
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(112, 145, 176),
-            Font = new Font("Segoe UI", 8.5F),
-            TextAlign = ContentAlignment.MiddleCenter
-        };
-        root.Controls.Add(footer, 0, 4);
+            ForeColor = Color.FromArgb(177, 198, 220),
+            TextAlign = ContentAlignment.MiddleLeft
+        }, 0, row);
+
+        input.Dock = DockStyle.Fill;
+        input.Margin = new Padding(4, 10, 4, 10);
+        input.BackColor = Color.FromArgb(8, 19, 35);
+        input.ForeColor = Color.White;
+        input.BorderStyle = BorderStyle.FixedSingle;
+        input.PlaceholderText = placeholder;
+        panel.Controls.Add(input, 1, row);
+    }
+
+    private void LoadSavedProfile()
+    {
+        var saved = _settings.Load();
+        _server.Text = saved.ServerAddress;
+        _port.Text = saved.Port.ToString();
+        _udp.Checked = saved.EnableUdp;
+
+        try
+        {
+            var credentials = _credentials.Load();
+            if (credentials is not null)
+            {
+                _username.Text = credentials.Value.Username;
+                _password.Text = credentials.Value.Password;
+            }
+        }
+        catch (CryptographicException)
+        {
+            _status.Text = "SAVED CREDENTIALS COULD NOT BE DECRYPTED";
+        }
+    }
+
+    private void SaveProfile()
+    {
+        if (!IPAddress.TryParse(_server.Text.Trim(), out _))
+        {
+            MessageBox.Show(this, "Enter the SOCKS5 server as a valid IP address.", "Invalid server", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _server.Focus();
+            return;
+        }
+
+        if (!int.TryParse(_port.Text.Trim(), out var port) || port is < 1 or > 65535)
+        {
+            MessageBox.Show(this, "Port must be a number between 1 and 65535.", "Invalid port", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _port.Focus();
+            return;
+        }
+
+        try
+        {
+            var profile = new Socks5Profile(_server.Text.Trim(), port,
+                string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text) ? null : _username.Text,
+                string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text) ? null : _password.Text,
+                _udp.Checked);
+            profile.Validate();
+            _settings.Save(profile.ServerAddress, profile.Port, profile.EnableUdp);
+            _credentials.Save(profile.Username, profile.Password);
+            _status.Text = "SETTINGS SAVED  •  TUNNEL NOT YET ENABLED";
+            _status.ForeColor = Color.FromArgb(80, 210, 160);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            MessageBox.Show(this, ex.Message, "Could not save settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 }
