@@ -136,8 +136,9 @@ public sealed class MainForm : Form
         AddField(panel, "Password", _password, 4, "Optional");
         _password.UseSystemPasswordChar = true;
 
-        _udp.Text = "Enable UDP support";
+        _udp.Text = "UDP support required for tunneled DNS";
         _udp.Checked = true;
+        _udp.Enabled = false;
         _udp.Dock = DockStyle.Fill;
         _udp.ForeColor = Color.FromArgb(210, 228, 245);
         panel.Controls.Add(_udp, 1, 5);
@@ -205,7 +206,7 @@ public sealed class MainForm : Form
         var saved = _settings.Load();
         _server.Text = saved.ServerAddress;
         _port.Text = saved.Port.ToString();
-        _udp.Checked = saved.EnableUdp;
+        _udp.Checked = true;
 
         try
         {
