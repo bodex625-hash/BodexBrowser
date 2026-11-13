@@ -82,7 +82,6 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             throw new InvalidOperationException("ProxyBridge is already running.");
 
         profile.Validate();
-        LoadEngine();
 
         var log = new StringBuilder();
         ProxyTestLogCallback callback = (line, _) =>
@@ -93,6 +92,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
 
         try
         {
+            LoadEngine();
             uint configId = _addProxyConfig!(
                 ProxyTypeSocks5,
                 profile.ServerAddress,
@@ -232,6 +232,11 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         {
             NativeLibrary.Free(_library);
             _library = IntPtr.Zero;
+        }
+        if (_winDivertLibrary != IntPtr.Zero)
+        {
+            NativeLibrary.Free(_winDivertLibrary);
+            _winDivertLibrary = IntPtr.Zero;
         }
     }
 
