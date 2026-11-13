@@ -9,8 +9,9 @@ namespace HBProxy.Windows;
 
 /// <summary>
 /// Owns the HEV process, private runtime configuration, and the exact route
-/// leases required for a verified full-tunnel session. DNS settings are left
-/// unchanged; DNS traffic follows the tunnel's default routes.
+/// leases required for a verified full-tunnel session. Physical adapter DNS
+/// settings are left unchanged; only the dedicated HBProxy adapter receives
+/// tunnel-routed resolver addresses.
 /// </summary>
 public sealed class HevProcessHost : IAsyncDisposable
 {
