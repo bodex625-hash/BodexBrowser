@@ -119,7 +119,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         string protocol,
         int? remotePort)
     {
-        script.Append("New-NetFirewallRule -PolicyStore PersistentStore ")
+        script.Append("try { New-NetFirewallRule -PolicyStore PersistentStore ")
             .Append("-DisplayName ").Append(Quote("Bodex HBProxy " + name)).Append(' ')
             .Append("-Group $group -Direction Outbound -Action Block -Enabled True ")
             .Append("-Profile Any -InterfaceAlias $iface ")
@@ -127,7 +127,13 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
             .Append("-Protocol ").Append(Quote(protocol)).Append(' ');
         if (remotePort.HasValue)
             script.Append("-RemotePort ").Append(remotePort.Value.ToString(CultureInfo.InvariantCulture)).Append(' ');
-        script.Append("-ErrorAction Stop | Out-Null; ");
+        script.Append("-ErrorAction Stop | Out-Null } catch { ");
+        script.Append("throw ('HBPROXY_RULE_FAILURE name=").Append(Quote(name))
+            .Append(" interface=' + $iface + ' protocol=").Append(protocol)
+            .Append(" remotePort=").Append(remotePort?.ToString(CultureInfo.InvariantCulture) ?? "none")
+            .Append(" addressCount=").Append(remoteAddresses.Count.ToString(CultureInfo.InvariantCulture))
+            .Append(" error=' + $_.Exception.Message + ' category=' + $_.CategoryInfo.Category + ' id=' + $_.FullyQualifiedErrorId) ");
+        script.Append("}; ");
     }
 
     public async Task ReleaseAsync(CancellationToken cancellationToken = default)
