@@ -179,7 +179,7 @@ public sealed class MainForm : Form
                 _password.Text = credentials.Value.Password;
             }
         }
-        catch (CryptographicException)
+        catch (System.Security.Cryptography.CryptographicException)
         {
             _status.Text = "SAVED CREDENTIALS COULD NOT BE DECRYPTED";
         }
@@ -214,7 +214,7 @@ public sealed class MainForm : Form
             _status.Text = "SETTINGS SAVED  •  TUNNEL NOT YET ENABLED";
             _status.ForeColor = Color.FromArgb(80, 210, 160);
         }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or CryptographicException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
         {
             MessageBox.Show(this, ex.Message, "Could not save settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
