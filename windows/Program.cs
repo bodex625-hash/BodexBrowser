@@ -27,6 +27,7 @@ internal static class Program
         {
             // Recover firewall/routes left by a forced termination before
             // allowing normal desktop use. A failed recovery stays fail-closed.
+            WindowsDnsLease.RecoverAbandonedAsync().GetAwaiter().GetResult();
             WindowsNetworkRecovery.RecoverAbandonedAsync().GetAwaiter().GetResult();
         }
         catch (Exception ex)
