@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: hbproxy-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-windows-x64:
     runs-on: windows-latest
