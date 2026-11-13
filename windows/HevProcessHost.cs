@@ -17,6 +17,7 @@ public sealed class HevProcessHost : IAsyncDisposable
     private Process? _process;
     private string? _configPath;
     private UpstreamRouteLease? _upstreamRouteLease;
+    private WindowsNetworkSnapshot? _networkSnapshot;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public HevProcessHost()
@@ -75,8 +76,8 @@ public sealed class HevProcessHost : IAsyncDisposable
             // pre-tunnel route table does not already contain one.
             if (!IPAddress.TryParse(profile.ServerAddress, out var serverAddress))
                 throw new InvalidOperationException("The SOCKS5 server address is not a valid IP literal.");
-            var routeSnapshot = await WindowsRouteSnapshot.CaptureAsync(cancellationToken);
-            var routePlan = UpstreamRoutePlan.Create(routeSnapshot, serverAddress);
+            _networkSnapshot = await WindowsNetworkSnapshot.CaptureAsync(cancellationToken);
+            var routePlan = UpstreamRoutePlan.Create(_networkSnapshot.Routes, serverAddress);
             _upstreamRouteLease = await UpstreamRouteLease.AcquireAsync(routePlan, cancellationToken);
 
             Directory.CreateDirectory(_runtimeDirectory);
