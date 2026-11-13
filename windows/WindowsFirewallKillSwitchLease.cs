@@ -60,11 +60,14 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         // reliably than an all-address CIDR (0.0.0.0/0 or ::/0) for port rules.
         // When the SOCKS endpoint is IPv4, all IPv6 DNS must be blocked (and
         // vice versa); when it shares the family, exempt only the SOCKS host.
+        // Keep the local DNS forwarder reachable while blocking every external
+        // DNS destination. The loopback exclusions are essential: without them,
+        // the DNS-specific rules also block Windows queries to 127.0.0.1 / ::1.
         var dnsV4Blocked = upstreamServer.AddressFamily == AddressFamily.InterNetwork
-            ? ComplementCidr(32, new[] { upstreamServer + "/32" })
+            ? ComplementCidr(32, new[] { upstreamServer + "/32", "127.0.0.0/8" })
             : new[] { "Any" };
         var dnsV6Blocked = upstreamServer.AddressFamily == AddressFamily.InterNetworkV6
-            ? ComplementCidr(128, new[] { upstreamServer + "/128" })
+            ? ComplementCidr(128, new[] { upstreamServer + "/128", "::1/128" })
             : new[] { "Any" };
 
         var group = "Bodex.HBProxy.KillSwitch." + Guid.NewGuid().ToString("N");
