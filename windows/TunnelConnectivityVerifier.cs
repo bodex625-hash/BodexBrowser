@@ -91,6 +91,59 @@ public static class TunnelConnectivityVerifier
         }
     }
 
+
+    /// <summary>
+    /// Verifies the same DNS and HTTPS path used by ordinary Windows applications.
+    /// Unlike the DoH check above, this deliberately uses the Windows resolver.
+    /// </summary>
+    public static async Task<IPAddress> VerifyWindowsConnectivityAsync(
+        CancellationToken cancellationToken = default)
+    {
+        IPAddress[] resolved;
+        try
+        {
+            resolved = await Dns.GetHostAddressesAsync(Host, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Windows DNS resolution failed for {Host}. The tunnel's DNS path is not working for normal applications: {Describe(ex)}", ex);
+        }
+
+        if (resolved.Length == 0)
+            throw new InvalidOperationException(
+                $"Windows DNS returned no addresses for {Host}; normal application traffic cannot resolve websites.");
+
+        using var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+            AllowAutoRedirect = false,
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            PooledConnectionLifetime = TimeSpan.Zero
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+        try
+        {
+            using var response = await client.GetAsync(
+                $"https://{Host}/", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Windows-resolver HTTPS test reached {Host}, but returned HTTP {(int)response.StatusCode}.");
+
+            var body = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();
+            if (!IPAddress.TryParse(body, out var address) || !IsPublicAddress(address))
+                throw new InvalidOperationException(
+                    "Windows-resolver HTTPS test returned an invalid or non-public egress address.");
+
+            return address;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Normal Windows DNS/HTTPS connectivity test failed for {Host}: {Describe(ex)}", ex);
+        }
+    }
+
     private static async Task<IPAddress[]> ResolveThroughTunnelAsync(CancellationToken cancellationToken)
     {
         using var handler = new SocketsHttpHandler
