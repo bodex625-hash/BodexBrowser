@@ -153,12 +153,12 @@ public sealed class WindowsDnsLease : IAsyncDisposable
     private static string BuildNetshDnsRestore(string family, bool isStatic, string[] addresses)
     {
         if (!isStatic)
-            return "& netsh.exe interface " + family + " set dnsservers name=$name source=dhcp; if($LASTEXITCODE -ne 0) { throw 'Failed to restore " + family + " DHCP DNS.' }; ";
+            return "& netsh.exe interface " + family + " set dnsservers name=\"$name\" source=dhcp; if($LASTEXITCODE -ne 0) { throw 'Failed to restore " + family + " DHCP DNS.' }; ";
         if (addresses.Length == 0)
             throw new InvalidOperationException("Static " + family + " DNS snapshot contains no servers.");
-        var script = "& netsh.exe interface " + family + " set dnsservers name=$name source=static address=" + Quote(addresses[0]) + " validate=no; if($LASTEXITCODE -ne 0) { throw 'Failed to restore primary " + family + " DNS.' }; ";
+        var script = "& netsh.exe interface " + family + " set dnsservers name=\"$name\" source=static address=" + Quote(addresses[0]) + " validate=no; if($LASTEXITCODE -ne 0) { throw 'Failed to restore primary " + family + " DNS.' }; ";
         for (var i = 1; i < addresses.Length; i++)
-            script += "& netsh.exe interface " + family + " add dnsservers name=$name address=" + Quote(addresses[i]) + " index=" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + " validate=no; if($LASTEXITCODE -ne 0) { throw 'Failed to restore additional " + family + " DNS.' }; ";
+            script += "& netsh.exe interface " + family + " add dnsservers name=\"$name\" address=" + Quote(addresses[i]) + " index=" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + " validate=no; if($LASTEXITCODE -ne 0) { throw 'Failed to restore additional " + family + " DNS.' }; ";
         return script;
     }
 
