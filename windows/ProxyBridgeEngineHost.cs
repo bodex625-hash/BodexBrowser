@@ -55,7 +55,8 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int StopDelegate();
 
-    private IntPtr _library;\n    private IntPtr _winDivertLibrary;
+    private IntPtr _library;
+    private IntPtr _winDivertLibrary;
     private AddProxyConfigDelegate? _addProxyConfig;
     private AddRuleDelegate? _addRule;
     private TestProxyConfigDelegate? _testProxy;
@@ -186,7 +187,10 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             throw new FileNotFoundException(
                 "The bundled ProxyBridge engine is incomplete. ProxyBridgeCore.dll, WinDivert.dll and WinDivert64.sys must be beside HBProxy.exe.");
 
-        // Load the adjacent WinDivert DLL explicitly before the core so the native\n        // dependency is resolved from the verified application directory.\n        _winDivertLibrary = NativeLibrary.Load(divertDll);\n        _library = NativeLibrary.Load(corePath);
+        // Load the adjacent WinDivert DLL explicitly before the core so the native
+        // dependency is resolved from the verified application directory.
+        _winDivertLibrary = NativeLibrary.Load(divertDll);
+        _library = NativeLibrary.Load(corePath);
         _addProxyConfig = Load<AddProxyConfigDelegate>("ProxyBridge_AddProxyConfig");
         _addRule = Load<AddRuleDelegate>("ProxyBridge_AddRule");
         _testProxy = Load<TestProxyConfigDelegate>("ProxyBridge_TestProxyConfigEx");
