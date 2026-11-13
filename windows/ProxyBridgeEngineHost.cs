@@ -84,6 +84,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         profile.Validate();
 
         var log = new StringBuilder();
+        bool startAttempted = false;
         ProxyTestLogCallback callback = (line, _) =>
         {
             lock (log)
@@ -151,6 +152,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                     throw new InvalidOperationException("ProxyBridge could not create the default fail-closed TCP/UDP rules.");
             }
 
+            startAttempted = true;
             if (_start!() == 0)
                 throw new InvalidOperationException(
                     "ProxyBridge could not start WinDivert. Run H.B Proxy as Administrator and check that the Windows driver is present.");
@@ -159,11 +161,11 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         }
         catch
         {
-            if (_running)
+            if (startAttempted)
             {
                 try { _stop?.Invoke(); } catch { }
-                _running = false;
             }
+            _running = false;
             ReleaseEngine();
             throw;
         }
