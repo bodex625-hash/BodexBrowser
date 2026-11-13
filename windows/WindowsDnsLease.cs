@@ -139,18 +139,27 @@ public sealed class WindowsDnsLease : IAsyncDisposable
             var identity = string.IsNullOrWhiteSpace(item.InterfaceGuid)
                 ? "$a=Get-NetAdapter -Name " + Quote(item.InterfaceAlias) + " -ErrorAction SilentlyContinue | Select-Object -First 1; "
                 : "$a=Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { ([string]$_.InterfaceGuid).Trim('{}') -eq " + Quote(item.InterfaceGuid.Trim('{', '}')) + " } | Select-Object -First 1; ";
-            commands.Add(
-                identity +
-                "if($null -eq $a) { throw 'Captured adapter is not currently present: " + Quote(item.InterfaceAlias) + ".' }; " +
-                (!item.IPv4Static && !item.IPv6Static
-                    ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction Stop; "
-                    : "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses @(" +
-                      string.Join(",", (item.IPv4Static ? item.IPv4ServerAddresses : Array.Empty<string>())
-                          .Concat(item.IPv6Static ? item.IPv6ServerAddresses : Array.Empty<string>())
-                          .Select(Quote)) + ") -ErrorAction Stop; "));
+            commands.Add(identity +
+                "if($null -ne $a) { " +
+                "$name=[string]$a.Name; " +
+                BuildNetshDnsRestore("ipv4", item.IPv4Static, item.IPv4ServerAddresses) +
+                BuildNetshDnsRestore("ipv6", item.IPv6Static, item.IPv6ServerAddresses) +
+                " }");
         }
         commands.Add("Write-Output 'OK'");
         return RunPowerShellAsync(string.Join(" ", commands), cancellationToken);
+    }
+
+    private static string BuildNetshDnsRestore(string family, bool isStatic, string[] addresses)
+    {
+        if (!isStatic)
+            return "& netsh.exe interface " + family + " set dnsservers name=$name source=dhcp; if($LASTEXITCODE -ne 0) { throw 'Failed to restore " + family + " DHCP DNS.' }; ";
+        if (addresses.Length == 0)
+            throw new InvalidOperationException("Static " + family + " DNS snapshot contains no servers.");
+        var script = "& netsh.exe interface " + family + " set dnsservers name=$name source=static address=" + Quote(addresses[0]) + " validate=no; if($LASTEXITCODE -ne 0) { throw 'Failed to restore primary " + family + " DNS.' }; ";
+        for (var i = 1; i < addresses.Length; i++)
+            script += "& netsh.exe interface " + family + " add dnsservers name=$name address=" + Quote(addresses[i]) + " index=" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + " validate=no; if($LASTEXITCODE -ne 0) { throw 'Failed to restore additional " + family + " DNS.' }; ";
+        return script;
     }
 
     private static string Quote(string value) => "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
