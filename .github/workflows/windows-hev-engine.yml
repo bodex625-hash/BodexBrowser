@@ -32,11 +32,17 @@ jobs:
           where.exe make
           where.exe sh
 
-      - name: Checkout HEV with required source submodules
+      - name: Checkout pinned HEV source and submodules
         shell: pwsh
         run: |
-          git clone --recursive https://github.com/heiher/hev-socks5-tunnel.git hev-socks5-tunnel
+          git clone https://github.com/heiher/hev-socks5-tunnel.git hev-socks5-tunnel
           if ($LASTEXITCODE -ne 0) { throw 'HEV source checkout failed' }
+          git -C hev-socks5-tunnel checkout 75dbc1e9ace6c70d3d1b94df7c283efe1de7effc
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned HEV revision checkout failed' }
+          git -C hev-socks5-tunnel submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'HEV submodule checkout failed' }
+          "HEV_SOURCE_COMMIT=75dbc1e9ace6c70d3d1b94df7c283efe1de7effc" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build native Windows x64 executable
         shell: pwsh
@@ -45,21 +51,27 @@ jobs:
           make ARCH=x64
           if ($LASTEXITCODE -ne 0) { throw 'HEV Windows x64 build failed' }
           if (!(Test-Path 'bin/hev-socks5-tunnel.exe')) { throw 'Expected executable was not produced' }
+          dumpbin /headers bin/hev-socks5-tunnel.exe | Select-String '8664 machine'
+          if ($LASTEXITCODE -ne 0) { throw 'HEV executable is not verified as x64 PE' }
 
       - name: Record binary hash and upload engine artifact
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item hev-socks5-tunnel/bin/hev-socks5-tunnel.exe dist/
-          Get-FileHash dist/hev-socks5-tunnel.exe -Algorithm SHA256 |
-            Format-List | Out-File dist/SHA256.txt
-          @'
+          $hash = (Get-FileHash dist/hev-socks5-tunnel.exe -Algorithm SHA256).Hash
+          "SHA256  $hash" | Tee-Object -FilePath dist/SHA256.txt
+          "HEV source commit: $env:HEV_SOURCE_COMMIT" | Write-Host
+          "HEV binary SHA256: $hash" | Write-Host
+          @"
           HEV SOCKS5 tunnel engine
           Source: https://github.com/heiher/hev-socks5-tunnel
+          Source commit: $env:HEV_SOURCE_COMMIT
           Architecture: Windows x64
+          Binary SHA256: $hash
           Note: this artifact is the engine only, not the H.B Proxy application.
           A matching official Wintun x64 DLL and the H.B Proxy controller are required.
-          '@ | Out-File dist/BUILD-INFO.txt -Encoding utf8
+          "@ | Out-File dist/BUILD-INFO.txt -Encoding utf8
 
       - name: Upload engine artifact
         uses: actions/upload-artifact@v4
