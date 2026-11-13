@@ -61,8 +61,32 @@ public sealed class TunnelDefaultRouteLease : IAsyncDisposable
             "if($created4) { Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix $v4 -ErrorAction SilentlyContinue | Where-Object {$_.InterfaceIndex -eq $ifIndex -and $_.NextHop -eq '0.0.0.0' -and $_.RouteMetric -eq $metric} | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }; " +
             "throw }";
 
-        await RunPowerShellAsync(script, cancellationToken);
-        return new TunnelDefaultRouteLease(interfaceIndex, metric);
+        try
+        {
+            await RunPowerShellAsync(script, cancellationToken);
+            return new TunnelDefaultRouteLease(interfaceIndex, metric);
+        }
+        catch (Exception setupError)
+        {
+            try
+            {
+                var rollback = "$ErrorActionPreference='Stop'; " +
+                    "$ifIndex=" + interfaceIndex.ToString(CultureInfo.InvariantCulture) + "; " +
+                    "$metric=" + metric.ToString(CultureInfo.InvariantCulture) + "; " +
+                    "Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '::/0' -ErrorAction SilentlyContinue | Where-Object {$_.InterfaceIndex -eq $ifIndex -and $_.NextHop -eq '::' -and $_.RouteMetric -eq $metric} | Remove-NetRoute -Confirm:$false -ErrorAction Stop; " +
+                    "Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Where-Object {$_.InterfaceIndex -eq $ifIndex -and $_.NextHop -eq '0.0.0.0' -and $_.RouteMetric -eq $metric} | Remove-NetRoute -Confirm:$false -ErrorAction Stop; " +
+                    "Write-Output 'OK'";
+                await RunPowerShellAsync(rollback, CancellationToken.None);
+            }
+            catch (Exception cleanupError)
+            {
+                throw new AggregateException(
+                    "Tunnel default-route setup failed and its partial routes could not be restored.",
+                    setupError, cleanupError);
+            }
+
+            throw;
+        }
     }
 
     public async Task ReleaseAsync(CancellationToken cancellationToken = default)
