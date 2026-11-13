@@ -161,11 +161,15 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             // completed its local DNS lookup, but before any app packets are captured.
             beforeNativeStart?.Invoke();
 
+            // Mark the native start as attempted before crossing the unmanaged boundary.
+            // A native start routine can partially initialize worker threads and then
+            // report failure (or throw through the interop boundary); the catch path
+            // must still call ProxyBridge_Stop to unwind that partial initialization.
+            startAttempted = true;
             if (_start!() == 0)
                 throw new InvalidOperationException(
                     "ProxyBridge could not start WinDivert. Run H.B Proxy as Administrator and check that the Windows driver is present.");
 
-            startAttempted = true;
             _running = true;
         }
         catch
