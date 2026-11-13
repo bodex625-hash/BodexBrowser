@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Net;
-using System.Net.NetworkInformation;
+using System.Net.NetworkInformation;\nusing System.Net.Sockets;
 using System.Text;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -92,6 +92,11 @@ public sealed class HevProcessHost : IAsyncDisposable
             _networkSnapshot = await WindowsNetworkSnapshot.CaptureAsync(cancellationToken);
             var routePlan = UpstreamRoutePlan.Create(_networkSnapshot.Routes, serverAddress);
             _upstreamRouteLease = await UpstreamRouteLease.AcquireAsync(routePlan, cancellationToken);
+
+            // Check the configured SOCKS endpoint over the preserved physical
+            // route before activating the kill switch. This is a TCP reachability
+            // check only; HEV still performs SOCKS5 negotiation and authentication.
+            await VerifyUpstreamTcpAsync(serverAddress, profile.Port, cancellationToken);
 
             // Install the fail-closed physical/virtual interface policy before
             // starting HEV. Only the SOCKS server address remains reachable
@@ -187,6 +192,31 @@ public sealed class HevProcessHost : IAsyncDisposable
         finally
         {
             _gate.Release();
+        }
+    }
+
+
+    private static async Task VerifyUpstreamTcpAsync(
+        IPAddress serverAddress, int port, CancellationToken cancellationToken)
+    {
+        using var client = new TcpClient(serverAddress.AddressFamily);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(7));
+        try
+        {
+            await client.ConnectAsync(serverAddress, port, timeout.Token);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"SOCKS5 endpoint TCP preflight timed out: {serverAddress}:{port}. " +
+                "The server/port may be unreachable or blocked before the tunnel starts.", ex);
+        }
+        catch (SocketException ex)
+        {
+            throw new InvalidOperationException(
+                $"SOCKS5 endpoint TCP preflight failed for {serverAddress}:{port}: " +
+                $"{ex.SocketErrorCode} (native error {ex.NativeErrorCode}) - {ex.Message}", ex);
         }
     }
 
