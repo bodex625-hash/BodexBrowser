@@ -122,7 +122,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("New-NetFirewallRule -PolicyStore PersistentStore ")
             .Append("-DisplayName ").Append(Quote("Bodex HBProxy " + name)).Append(' ')
             .Append("-Group $group -Direction Outbound -Action Block -Enabled True ")
-            .Append("-Profile Any -InterfaceAlias $ifaces ")
+            .Append("-Profile Any -InterfaceAlias $iface ")
             .Append("-RemoteAddress ").Append(PsArray(remoteAddresses)).Append(' ')
             .Append("-Protocol ").Append(Quote(protocol)).Append(' ');
         if (remotePort.HasValue)
