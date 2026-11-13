@@ -186,6 +186,9 @@ public sealed class HevProcessHost : IAsyncDisposable
             }
             // On any other deletion failure retain the path so cleanup can be retried.
         }
+
+        if (_process is null && _upstreamRouteLease is null && _configPath is null)
+            _networkSnapshot = null;
     }
 
     public async ValueTask DisposeAsync()
