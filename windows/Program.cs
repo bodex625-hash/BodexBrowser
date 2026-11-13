@@ -7,6 +7,20 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
+        using var singleInstance = new Mutex(
+            initiallyOwned: true,
+            name: "Local\\Bodex.HBProxy.WindowsClient",
+            createdNew: out var createdNew);
+        if (!createdNew)
+        {
+            MessageBox.Show(
+                "H.B Proxy is already running.",
+                "H.B Proxy",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
         try
         {
             // Recover firewall/routes left by a forced termination before
