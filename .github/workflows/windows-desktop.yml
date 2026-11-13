@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build-windows-x64:
@@ -23,6 +24,17 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Build and publish desktop shell
         run: dotnet publish windows/HBProxy.Windows.csproj -c Release -r win-x64 --self-contained false -o publish
+      - name: Download pinned HEV engine and Wintun
+        uses: actions/download-artifact@v4
+        with:
+          name: hev-windows-x64-engine
+          repository: bodex625-hash/BodexBrowser
+          run-id: 43454551076
+          github-token: ${{ github.token }}
+          path: engine
+      - name: Package HEV engine beside the application
+        shell: pwsh
+        run: Copy-Item -Path "engine/*" -Destination "publish/" -Recurse -Force
       - name: Upload Windows desktop build
         uses: actions/upload-artifact@v4
         with:
