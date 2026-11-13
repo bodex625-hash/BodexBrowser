@@ -80,8 +80,33 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue; ");
         script.Append("throw }");
 
-        await RunPowerShellAsync(script.ToString(), cancellationToken);
-        return new WindowsFirewallKillSwitchLease(group);
+        try
+        {
+            await RunPowerShellAsync(script.ToString(), cancellationToken);
+            return new WindowsFirewallKillSwitchLease(group);
+        }
+        catch (Exception setupError)
+        {
+            try
+            {
+                var cleanup = "$ErrorActionPreference='Stop'; " +
+                    "$group=" + Quote(group) + "; " +
+                    "$rules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue); " +
+                    "if($rules.Count -gt 0) { $rules | Remove-NetFirewallRule -ErrorAction Stop }; " +
+                    "$left=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue); " +
+                    "if($left.Count -ne 0) { throw 'Partial kill-switch rules remain after rollback.' }; " +
+                    "Write-Output 'OK'";
+                await RunPowerShellAsync(cleanup, CancellationToken.None);
+            }
+            catch (Exception cleanupError)
+            {
+                throw new AggregateException(
+                    "Kill-switch setup failed and its partial rules could not be fully rolled back.",
+                    setupError, cleanupError);
+            }
+
+            throw;
+        }
     }
 
     private static void AppendRule(
