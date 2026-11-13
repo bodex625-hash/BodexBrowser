@@ -167,6 +167,14 @@ public sealed class HevProcessHost : IAsyncDisposable
                     // exits through the newly installed tunnel routes.
                     VerifiedEgressAddress = await TunnelConnectivityVerifier.VerifyHttpsEgressAsync(
                         cancellationToken);
+                    // Do not trust the private DoH probe alone: verify the Windows
+                    // resolver and ordinary direct HTTPS path used by Chrome.
+                    var windowsEgress = await TunnelConnectivityVerifier.VerifyWindowsConnectivityAsync(
+                        cancellationToken);
+                    if (!windowsEgress.Equals(VerifiedEgressAddress))
+                        throw new InvalidOperationException(
+                            $"Tunnel egress mismatch: internal probe reported {VerifiedEgressAddress}, " +
+                            $"but the Windows resolver path reported {windowsEgress}.");
                     return;
                 }
 
