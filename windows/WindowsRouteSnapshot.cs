@@ -27,7 +27,7 @@ public sealed class WindowsRouteSnapshot
             "$metrics=@{}; " +
             "Get-NetIPInterface -PolicyStore ActiveStore | ForEach-Object { " +
             "$metrics[($_.InterfaceIndex.ToString() + '|' + $_.AddressFamily.ToString())]=[int]$_.InterfaceMetric }; " +
-            "$routes=@(Get-NetRoute -PolicyStore ActiveStore | ForEach-Object { " +
+            "$routes=@(Get-NetRoute -PolicyStore ActiveStore | Where-Object { $_.State -eq 'Alive' } | ForEach-Object { " +
             "$family=if ($_.DestinationPrefix.Contains(':')) {'IPv6'} else {'IPv4'}; " +
             "$key=($_.InterfaceIndex.ToString() + '|' + $family); " +
             "$im=if ($metrics.ContainsKey($key)) {$metrics[$key]} else {-1}; " +
@@ -68,7 +68,11 @@ public sealed class WindowsRouteSnapshot
             try
             {
                 if (!process.HasExited)
+                {
                     process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None)
+                        .WaitAsync(TimeSpan.FromSeconds(5));
+                }
             }
             catch
             {
