@@ -84,39 +84,38 @@ class BodexVpnService : VpnService() {
                 .setMtu(1500)
                 .setBlocking(false)
                 .addAddress("198.18.0.1", 15)
-                .addAddress("fc00::1", 128)
                 // This is a proxy-only app: exclude its own sockets so the
                 // upstream SOCKS5 connection cannot loop back into this TUN.
                 .addDisallowedApplication(packageName)
                 .addRoute("0.0.0.0", 0)
-                .addRoute("::", 0)
+                // IPv6 is intentionally not configured or routed through this VPN.
+                // This avoids sending IPv6 outside the SOCKS5 tunnel.
                 // Use HEV's mapped DNS endpoint; DNS is resolved through SOCKS5.
                 .addDnsServer("198.18.0.2")
 
             tun = builder.establish() ?: throw IllegalStateException("تعذر إنشاء واجهة VPN")
             val config = File(cacheDir, "bodex-socks5.conf")
             config.writeText(buildString {
-                append("tunnel:\n")
-                append("  mtu: 1500\n")
-                append("  ipv4: 198.18.0.1\n")
-                append("  ipv6: 'fc00::1'\n")
-                append("socks5:\n")
-                append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
-                append("  port: ").append(port).append("\n")
-                append("  udp: 'udp'\n")
+                append("tunnel:\\n")
+                append("  mtu: 1500\\n")
+                append("  ipv4: 198.18.0.1\\n")
+                append("socks5:\\n")
+                append("  address: \\\"").append(yaml(proxyAddress.hostAddress)).append("\\\"\\n")
+                append("  port: ").append(port).append("\\n")
+                append("  udp: 'udp'\\n")
                 if (user.isNotEmpty() && pass.isNotEmpty()) {
-                    append("  username: \"").append(yaml(user)).append("\"\n")
-                    append("  password: \"").append(yaml(pass)).append("\"\n")
+                    append("  username: \\\"").append(yaml(user)).append("\\\"\\n")
+                    append("  password: \\\"").append(yaml(pass)).append("\\\"\\n")
                 }
-                append("mapdns:\n")
-                append("  address: 198.18.0.2\n")
-                append("  port: 53\n")
-                append("  network: 240.0.0.0\n")
-                append("  netmask: 240.0.0.0\n")
-                append("  cache-size: 10000\n")
-                append("misc:\n")
-                append("  log-file: \"").append(yaml(File(cacheDir, "hev-tunnel.log").absolutePath)).append("\"\n")
-                append("  log-level: debug\n")
+                append("mapdns:\\n")
+                append("  address: 198.18.0.2\\n")
+                append("  port: 53\\n")
+                append("  network: 240.0.0.0\\n")
+                append("  netmask: 240.0.0.0\\n")
+                append("  cache-size: 10000\\n")
+                append("misc:\\n")
+                append("  log-file: \\\"").append(yaml(File(cacheDir, "hev-tunnel.log").absolutePath)).append("\\\"\\n")
+                append("  log-level: warn\\n")
             })
             if (!TProxyService.TProxyStartService(config.absolutePath, tun!!.fd)) {
                 throw IllegalStateException("محرك SOCKS5 لم يبدأ")
@@ -176,7 +175,7 @@ class BodexVpnService : VpnService() {
         }
     }
 
-    private fun yaml(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
+    private fun yaml(value: String) = value.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"").replace("\\n", "")
     override fun onRevoke() { stopTunnel(); super.onRevoke() }
     override fun onDestroy() {
         monitorHandler.removeCallbacks(licenseMonitor)
