@@ -11,8 +11,8 @@ android {
         applicationId = "com.bodex.browser"
         minSdk = 29
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.3.0-license-gated"
+        versionCode = 21
+        versionName = "0.3.1"
     }
 
     buildFeatures { compose = true }
