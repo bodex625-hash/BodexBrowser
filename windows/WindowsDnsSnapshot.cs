@@ -29,9 +29,13 @@ public sealed class WindowsDnsSnapshot
             "$index=0; [void][int]::TryParse([string]$_.InterfaceIndex,[ref]$index); " +
             "$alias=[string]$_.InterfaceAlias; " +
             "$adapter=Get-NetAdapter -InterfaceIndex $index -ErrorAction SilentlyContinue; " +
+            "$guid=if($null -ne $adapter) { $adapter.InterfaceGuid.ToString('B') } else { '' }; " +
+            "$registryPath=if($family -eq 'IPv4') { 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\' + $guid } else { 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters\\Interfaces\\' + $guid }; " +
+            "$staticNameServer=[string](Get-ItemProperty -Path $registryPath -Name NameServer -ErrorAction SilentlyContinue).NameServer; " +
+            "$isStatic=-not [string]::IsNullOrWhiteSpace($staticNameServer); " +
             "if ($index -gt 0 -and -not [string]::IsNullOrWhiteSpace($alias) -and $null -ne $family -and $null -ne $adapter -and $adapter.Status -eq 'Up' -and $adapter.Name -eq $alias -and $adapter.Name -ne 'HBProxy' -and $adapter.Name -notlike 'Loopback*') { " +
             "[pscustomobject]@{InterfaceIndex=$index;InterfaceAlias=$alias;" +
-            "AddressFamily=$family;ServerAddresses=@($_.ServerAddresses | Where-Object { " +
+            "AddressFamily=$family;IsStatic=$isStatic;ServerAddresses=@($_.ServerAddresses | Where-Object { " +
             "$null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })} " +
             "} }); ConvertTo-Json -InputObject $items -Compress";
 
@@ -115,6 +119,11 @@ public sealed class WindowsDnsSnapshot
             (family != "IPv4" && family != "IPv6"))
             throw new InvalidOperationException("Windows returned an incomplete usable DNS interface record.");
 
+        if (!item.TryGetProperty("IsStatic", out var staticValue) ||
+            staticValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidOperationException("Windows returned invalid DNS configuration mode.");
+        bool isStatic = staticValue.GetBoolean();
+
         if (!item.TryGetProperty("ServerAddresses", out var servers) ||
             servers.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null))
             throw new InvalidOperationException("Windows returned invalid DNS server data.");
@@ -133,7 +142,10 @@ public sealed class WindowsDnsSnapshot
             }
         }
 
-        entries.Add(new WindowsDnsEntry(interfaceIndex, alias, family, addresses.AsReadOnly()));
+        if (isStatic && addresses.Count == 0)
+            throw new InvalidOperationException("Windows marked DNS as static but returned no static DNS servers.");
+
+        entries.Add(new WindowsDnsEntry(interfaceIndex, alias, family, isStatic, addresses.AsReadOnly()));
     }
 
     private static string GetString(JsonElement item, string name)
@@ -155,4 +167,5 @@ public sealed record WindowsDnsEntry(
     int InterfaceIndex,
     string InterfaceAlias,
     string AddressFamily,
+    bool IsStatic,
     IReadOnlyList<IPAddress> ServerAddresses);
