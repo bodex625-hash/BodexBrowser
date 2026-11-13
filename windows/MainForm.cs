@@ -48,7 +48,7 @@ public sealed class MainForm : Form
             {
                 await _host.DisposeAsync();
                 _allowClose = true;
-                BeginInvoke(Close);
+                BeginInvoke(new Action(Close));
             }
             catch (Exception ex)
             {
@@ -313,6 +313,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
+            Exception reportedError = ex;
             var cleanupSucceeded = false;
             try
             {
@@ -321,7 +322,7 @@ public sealed class MainForm : Form
             }
             catch (Exception cleanupError)
             {
-                ex = new AggregateException(ex, cleanupError);
+                reportedError = new AggregateException(ex, cleanupError);
             }
 
             _connectionEstablished = false;
@@ -330,7 +331,7 @@ public sealed class MainForm : Form
                 ? "CONNECTION FAILED  •  NETWORK RESTORED"
                 : "CLEANUP FAILED  •  NETWORK PROTECTION RETAINED";
             _status.ForeColor = Color.FromArgb(255, 110, 110);
-            MessageBox.Show(this, ex.Message, "H.B Proxy connection", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, reportedError.Message, "H.B Proxy connection", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
