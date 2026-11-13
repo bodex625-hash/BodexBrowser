@@ -32,8 +32,31 @@ public sealed class TunnelDnsLease : IAsyncDisposable
             "if($check.Count -lt 4) { throw 'The tunnel DNS resolver addresses could not be verified.' }; " +
             "Write-Output 'OK'";
 
-        await RunPowerShellAsync(script, cancellationToken);
-        return new TunnelDnsLease(interfaceIndex);
+        try
+        {
+            await RunPowerShellAsync(script, cancellationToken);
+            return new TunnelDnsLease(interfaceIndex);
+        }
+        catch (Exception setupError)
+        {
+            try
+            {
+                var rollback = "$ErrorActionPreference='Stop'; " +
+                    "$idx=" + interfaceIndex.ToString(CultureInfo.InvariantCulture) + "; " +
+                    "$adapter=@(Get-NetAdapter -InterfaceIndex $idx -ErrorAction SilentlyContinue); " +
+                    "if($adapter.Count -gt 0 -and $adapter[0].Name -eq 'HBProxy') { Set-DnsClientServerAddress -InterfaceIndex $idx -ResetServerAddresses -ErrorAction Stop }; " +
+                    "Write-Output 'OK'";
+                await RunPowerShellAsync(rollback, CancellationToken.None);
+            }
+            catch (Exception cleanupError)
+            {
+                throw new AggregateException(
+                    "Tunnel DNS setup failed and its partial assignment could not be restored.",
+                    setupError, cleanupError);
+            }
+
+            throw;
+        }
     }
 
     public async Task ReleaseAsync(CancellationToken cancellationToken = default)
