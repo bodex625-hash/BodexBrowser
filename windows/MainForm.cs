@@ -16,6 +16,8 @@ public sealed class MainForm : Form
     private readonly CredentialStore _credentials = new();
     private readonly ProfileSettingsStore _settings = new();
     private readonly ProxyBridgeEngineHost _host = new();
+    private Socks5DnsForwarder? _dnsForwarder;
+    private WindowsDnsLease? _dnsLease;
     private readonly System.Windows.Forms.Timer _healthTimer = new() { Interval = 1000 };
     private bool _connectionEstablished;
     private bool _allowClose;
@@ -46,6 +48,16 @@ public sealed class MainForm : Form
             _healthTimer.Stop();
             try
             {
+                if (_dnsLease is not null)
+                {
+                    await _dnsLease.ReleaseAsync();
+                    _dnsLease = null;
+                }
+                if (_dnsForwarder is not null)
+                {
+                    await _dnsForwarder.DisposeAsync();
+                    _dnsForwarder = null;
+                }
                 await _host.DisposeAsync();
                 _allowClose = true;
                 BeginInvoke(new Action(Close));
@@ -291,6 +303,16 @@ public sealed class MainForm : Form
             {
                 _status.Text = "DISCONNECTING  •  RESTORING NETWORK";
                 _status.ForeColor = Color.FromArgb(255, 194, 92);
+                if (_dnsLease is not null)
+                {
+                    await _dnsLease.ReleaseAsync();
+                    _dnsLease = null;
+                }
+                if (_dnsForwarder is not null)
+                {
+                    await _dnsForwarder.DisposeAsync();
+                    _dnsForwarder = null;
+                }
                 await _host.StopAsync();
                 _connectionEstablished = false;
                 _udp.Enabled = true;
@@ -306,7 +328,15 @@ public sealed class MainForm : Form
             PersistProfile(profile);
             _status.Text = "CONNECTING  •  TESTING SOCKS5 AND STARTING SYSTEM ROUTING";
             _status.ForeColor = Color.FromArgb(255, 194, 92);
+            _dnsForwarder = new Socks5DnsForwarder(profile);
+            await _dnsForwarder.StartAsync();
             await _host.StartAsync(profile);
+            _status.Text = "CONNECTING  •  CONFIGURING PRIVATE DNS OVER SOCKS5";
+            _dnsLease = await WindowsDnsLease.AcquireAsync();
+            var dnsCheck = await Dns.GetHostAddressesAsync("example.com")
+                .WaitAsync(TimeSpan.FromSeconds(12));
+            if (dnsCheck.Length == 0)
+                throw new InvalidOperationException("Windows DNS returned no addresses through the local SOCKS5 DNS forwarder.");
 
             _connectionEstablished = true;
             _udp.Enabled = false;
@@ -320,6 +350,16 @@ public sealed class MainForm : Form
             var cleanupSucceeded = false;
             try
             {
+                if (_dnsLease is not null)
+                {
+                    await _dnsLease.ReleaseAsync();
+                    _dnsLease = null;
+                }
+                if (_dnsForwarder is not null)
+                {
+                    await _dnsForwarder.DisposeAsync();
+                    _dnsForwarder = null;
+                }
                 await _host.StopAsync();
                 cleanupSucceeded = true;
             }
