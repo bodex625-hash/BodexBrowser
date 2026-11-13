@@ -1,0 +1,68 @@
+name: Build Windows HEV engine
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/windows-proxy-client
+    paths:
+      - '.github/workflows/windows-hev-engine.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-hev-x64:
+    runs-on: windows-2022
+    steps:
+      - name: Prepare Visual Studio x64 toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install GNU Make and LLVM
+        shell: pwsh
+        run: |
+          choco install make llvm -y --no-progress
+          $env:PATH += ';C:\Program Files\LLVM\bin;C:\Program Files\Git\usr\bin'
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Program Files\Git\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          where.exe clang
+          where.exe make
+          where.exe sh
+
+      - name: Checkout HEV with required source submodules
+        shell: pwsh
+        run: |
+          git clone --recursive https://github.com/heiher/hev-socks5-tunnel.git hev-socks5-tunnel
+          if ($LASTEXITCODE -ne 0) { throw 'HEV source checkout failed' }
+
+      - name: Build native Windows x64 executable
+        shell: pwsh
+        working-directory: hev-socks5-tunnel
+        run: |
+          make ARCH=x64
+          if ($LASTEXITCODE -ne 0) { throw 'HEV Windows x64 build failed' }
+          if (!(Test-Path 'bin/hev-socks5-tunnel.exe')) { throw 'Expected executable was not produced' }
+
+      - name: Record binary hash and upload engine artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item hev-socks5-tunnel/bin/hev-socks5-tunnel.exe dist/
+          Get-FileHash dist/hev-socks5-tunnel.exe -Algorithm SHA256 |
+            Format-List | Out-File dist/SHA256.txt
+          @'
+          HEV SOCKS5 tunnel engine
+          Source: https://github.com/heiher/hev-socks5-tunnel
+          Architecture: Windows x64
+          Note: this artifact is the engine only, not the H.B Proxy application.
+          A matching official Wintun x64 DLL and the H.B Proxy controller are required.
+          '@ | Out-File dist/BUILD-INFO.txt -Encoding utf8
+
+      - name: Upload engine artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hev-windows-x64-engine
+          path: dist/
+          if-no-files-found: error
