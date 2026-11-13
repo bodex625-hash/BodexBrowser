@@ -22,6 +22,18 @@ class BodexVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private val worker = Executors.newSingleThreadExecutor()
     private val monitorHandler = Handler(Looper.getMainLooper())
+    private val engineMonitor = object : Runnable {
+        override fun run() {
+            if (tun == null) return
+            val running = try { TProxyService.TProxyIsRunning() } catch (_: Throwable) { false }
+            if (!running) {
+                Log.e(TAG, "SOCKS5 engine stopped unexpectedly; removing VPN routes")
+                stopTunnelWithMessage("توقف محرك SOCKS5؛ تمت إعادة اتصال الإنترنت")
+            } else {
+                monitorHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
     private val licenseMonitor = object : Runnable {
         override fun run() {
             worker.execute {
@@ -100,8 +112,8 @@ class BodexVpnService : VpnService() {
                 append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 append("  port: ").append(port).append("\n")
                 append("  udp: 'udp'\n")
-                // Pipeline SOCKS5 negotiation to avoid an extra handshake round trip per new TCP session.
-                append("  pipeline: true\n")
+                // Keep the standard SOCKS5 handshake for maximum server compatibility.
+                append("  pipeline: false\n")
                 if (user.isNotEmpty() && pass.isNotEmpty()) {
                     append("  username: \"").append(yaml(user)).append("\"\n")
                     append("  password: \"").append(yaml(pass)).append("\"\n")
@@ -119,8 +131,10 @@ class BodexVpnService : VpnService() {
             if (!TProxyService.TProxyStartService(config.absolutePath, tun!!.fd)) {
                 throw IllegalStateException("محرك SOCKS5 لم يبدأ")
             }
-            Log.i(TAG, "SOCKS5 tunnel started; upstream=$host:$port")
-            broadcastState(true, "متصل عبر SOCKS5")
+            Log.i(TAG, "SOCKS5 engine thread started; upstream=$host:$port")
+            monitorHandler.removeCallbacks(engineMonitor)
+            monitorHandler.postDelayed(engineMonitor, 1000L)
+            broadcastState(true, "محرك SOCKS5 يعمل")
         } catch (e: Exception) {
             Log.e(TAG, "VPN start failed", e)
             stopTunnel()
@@ -150,6 +164,7 @@ class BodexVpnService : VpnService() {
 
     private fun stopTunnel() {
         monitorHandler.removeCallbacks(licenseMonitor)
+        monitorHandler.removeCallbacks(engineMonitor)
         try { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() } catch (_: Throwable) {}
         try { tun?.close() } catch (_: IOException) {}
         tun = null
