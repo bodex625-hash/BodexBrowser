@@ -23,9 +23,9 @@ public sealed class WindowsDnsSnapshot
     {
         const string script = "$ErrorActionPreference='Stop'; " +
             "$items=@(Get-DnsClientServerAddress | ForEach-Object { " +
-            "$familyName=$_.AddressFamily.ToString(); " +
-            "$family=if ($familyName -in @('InterNetwork','IPv4','2')) {'IPv4'} " +
-            "elseif ($familyName -in @('InterNetworkV6','IPv6','23')) {'IPv6'} else {$null}; " +
+            "$familyValue=[int]$_.AddressFamily; " +
+            "$family=if ($familyValue -eq 2) {'IPv4'} " +
+            "elseif ($familyValue -eq 23) {'IPv6'} else {$null}; " +
             "$index=0; [void][int]::TryParse([string]$_.InterfaceIndex,[ref]$index); " +
             "$alias=[string]$_.InterfaceAlias; " +
             "$adapter=Get-NetAdapter -InterfaceIndex $index -ErrorAction SilentlyContinue; " +
