@@ -136,9 +136,9 @@ public sealed class MainForm : Form
         AddField(panel, "Password", _password, 4, "Optional");
         _password.UseSystemPasswordChar = true;
 
-        _udp.Text = "UDP support required for tunneled DNS";
+        _udp.Text = "Enable UDP (recommended; disabling it may affect DNS)";
         _udp.Checked = true;
-        _udp.Enabled = false;
+        _udp.Enabled = true;
         _udp.Dock = DockStyle.Fill;
         _udp.ForeColor = Color.FromArgb(210, 228, 245);
         panel.Controls.Add(_udp, 1, 5);
@@ -206,7 +206,7 @@ public sealed class MainForm : Form
         var saved = _settings.Load();
         _server.Text = saved.ServerAddress;
         _port.Text = saved.Port.ToString();
-        _udp.Checked = true;
+        _udp.Checked = saved.EnableUdp;
 
         try
         {
@@ -293,6 +293,7 @@ public sealed class MainForm : Form
                 _status.ForeColor = Color.FromArgb(255, 194, 92);
                 await _host.StopAsync();
                 _connectionEstablished = false;
+                _udp.Enabled = true;
                 _connect.Text = "CONNECT";
                 _status.Text = "DISCONNECTED  •  ORIGINAL ROUTES RESTORED";
                 _status.ForeColor = Color.FromArgb(142, 177, 207);
@@ -308,6 +309,7 @@ public sealed class MainForm : Form
             await _host.StartAsync(profile);
 
             _connectionEstablished = true;
+            _udp.Enabled = false;
             _connect.Text = "DISCONNECT";
             _status.Text = "CONNECTED  •  HTTPS VERIFIED  •  " + _host.VerifiedEgressAddress;
             _status.ForeColor = Color.FromArgb(80, 210, 160);
@@ -327,6 +329,7 @@ public sealed class MainForm : Form
             }
 
             _connectionEstablished = false;
+            _udp.Enabled = true;
             _connect.Text = "CONNECT";
             _status.Text = cleanupSucceeded
                 ? "CONNECTION FAILED  •  NETWORK RESTORED"
@@ -419,6 +422,7 @@ public sealed class MainForm : Form
             return;
 
         _connectionEstablished = false;
+        _udp.Enabled = true;
         _connect.Text = "CONNECT";
         _status.Text = "TUNNEL STOPPED  •  CHECK NETWORK CLEANUP";
         _status.ForeColor = Color.FromArgb(255, 110, 110);
