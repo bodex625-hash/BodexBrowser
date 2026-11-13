@@ -19,6 +19,7 @@ public sealed class HevProcessHost : IAsyncDisposable
     private string? _configPath;
     private UpstreamRouteLease? _upstreamRouteLease;
     private TunnelDefaultRouteLease? _tunnelDefaultRouteLease;
+    private TunnelDnsLease? _tunnelDnsLease;
     private WindowsFirewallKillSwitchLease? _firewallLease;
     private WindowsNetworkSnapshot? _networkSnapshot;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -136,6 +137,12 @@ public sealed class HevProcessHost : IAsyncDisposable
                     if (ipv4Index <= 0 || ipv6Index <= 0 || ipv4Index != ipv6Index)
                         throw new InvalidOperationException("The HBProxy adapter does not expose matching IPv4 and IPv6 interface indexes.");
 
+                    // Put DNS on the tunnel adapter before changing default
+                    // routes. Physical DNS is blocked by the kill switch; these
+                    // resolvers become reachable only through HBProxy.
+                    _tunnelDnsLease = await TunnelDnsLease.AcquireAsync(
+                        ipv4Index, cancellationToken);
+
                     // The upstream SOCKS endpoint already has a physical host-route
                     // lease. Only now install the tunnel defaults, after the HEV
                     // adapter is present and confirmed up.
@@ -217,8 +224,14 @@ public sealed class HevProcessHost : IAsyncDisposable
             _tunnelDefaultRouteLease = null;
         }
 
-        // Keep the kill switch active until the tunnel defaults have been
-        // removed. This prevents a brief direct-egress window on shutdown.
+        if (_tunnelDnsLease is not null)
+        {
+            await _tunnelDnsLease.ReleaseAsync();
+            _tunnelDnsLease = null;
+        }
+
+        // Keep the kill switch active until the tunnel defaults and DNS
+        // assignment have been removed. This prevents a direct-egress window.
         if (_firewallLease is not null)
         {
             await _firewallLease.ReleaseAsync();
@@ -247,7 +260,7 @@ public sealed class HevProcessHost : IAsyncDisposable
             // On any other deletion failure retain the path so cleanup can be retried.
         }
 
-        if (_process is null && _tunnelDefaultRouteLease is null && _firewallLease is null && _upstreamRouteLease is null && _configPath is null)
+        if (_process is null && _tunnelDefaultRouteLease is null && _tunnelDnsLease is null && _firewallLease is null && _upstreamRouteLease is null && _configPath is null)
         {
             _networkSnapshot = null;
             VerifiedEgressAddress = null;
