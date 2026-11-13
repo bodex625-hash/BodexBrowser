@@ -6,8 +6,8 @@ namespace HBProxy.Windows;
 
 /// <summary>
 /// Read-only snapshot of DNS client server assignments per interface and address family.
-/// It deliberately makes no DNS changes; captured state will be used by the later
-/// network transaction and exact rollback implementation.
+/// Windows can return placeholder records for adapters that have no usable interface
+/// identity; PowerShell filters those out and normalizes the .NET address-family enum.
 /// </summary>
 public sealed class WindowsDnsSnapshot
 {
@@ -23,9 +23,16 @@ public sealed class WindowsDnsSnapshot
     {
         const string script = "$ErrorActionPreference='Stop'; " +
             "$items=@(Get-DnsClientServerAddress | ForEach-Object { " +
-            "[pscustomobject]@{InterfaceIndex=$_.InterfaceIndex;InterfaceAlias=$_.InterfaceAlias;" +
-            "AddressFamily=$_.AddressFamily.ToString();ServerAddresses=@($_.ServerAddresses)} }); " +
-            "ConvertTo-Json -InputObject $items -Compress";
+            "$familyName=$_.AddressFamily.ToString(); " +
+            "$family=if ($familyName -in @('InterNetwork','IPv4','2')) {'IPv4'} " +
+            "elseif ($familyName -in @('InterNetworkV6','IPv6','23')) {'IPv6'} else {$null}; " +
+            "$index=0; [void][int]::TryParse([string]$_.InterfaceIndex,[ref]$index); " +
+            "$alias=[string]$_.InterfaceAlias; " +
+            "if ($index -gt 0 -and -not [string]::IsNullOrWhiteSpace($alias) -and $null -ne $family) { " +
+            "[pscustomobject]@{InterfaceIndex=$index;InterfaceAlias=$alias;" +
+            "AddressFamily=$family;ServerAddresses=@($_.ServerAddresses | Where-Object { " +
+            "$null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })} " +
+            "} }); ConvertTo-Json -InputObject $items -Compress";
 
         var startInfo = new ProcessStartInfo
         {
@@ -92,7 +99,7 @@ public sealed class WindowsDnsSnapshot
                     AddEntry(item, entries);
 
         if (entries.Count == 0)
-            throw new InvalidOperationException("Windows returned no DNS interface records; refusing to prepare DNS changes.");
+            throw new InvalidOperationException("Windows returned no usable DNS interface records; refusing to prepare DNS changes.");
 
         return new WindowsDnsSnapshot(entries.AsReadOnly());
     }
@@ -105,7 +112,7 @@ public sealed class WindowsDnsSnapshot
 
         if (interfaceIndex <= 0 || string.IsNullOrWhiteSpace(alias) ||
             (family != "IPv4" && family != "IPv6"))
-            throw new InvalidOperationException("Windows returned an incomplete DNS interface record.");
+            throw new InvalidOperationException("Windows returned an incomplete usable DNS interface record.");
 
         if (!item.TryGetProperty("ServerAddresses", out var servers) ||
             servers.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null))
