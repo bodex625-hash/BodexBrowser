@@ -15,6 +15,7 @@ public sealed class HevProcessHost : IAsyncDisposable
     private readonly string _runtimeDirectory;
     private Process? _process;
     private string? _configPath;
+    private UpstreamRouteLease? _upstreamRouteLease;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public HevProcessHost()
@@ -67,6 +68,15 @@ public sealed class HevProcessHost : IAsyncDisposable
             var wintun = Path.Combine(AppContext.BaseDirectory, "wintun.dll");
             if (!File.Exists(executable) || !File.Exists(wintun))
                 throw new FileNotFoundException("The HEV engine and matching x64 wintun.dll must be installed beside HBProxy.exe.");
+
+            // Preserve a direct physical path to the SOCKS5 server before HEV
+            // installs its tunnel routes. Only create a host route when the
+            // pre-tunnel route table does not already contain one.
+            if (!IPAddress.TryParse(profile.ServerAddress, out var serverAddress))
+                throw new InvalidOperationException("The SOCKS5 server address is not a valid IP literal.");
+            var routeSnapshot = await WindowsRouteSnapshot.CaptureAsync(cancellationToken);
+            var routePlan = UpstreamRoutePlan.Create(routeSnapshot, serverAddress);
+            _upstreamRouteLease = await UpstreamRouteLease.AcquireAsync(routePlan, cancellationToken);
 
             Directory.CreateDirectory(_runtimeDirectory);
             RestrictRuntimeDirectory();
@@ -150,6 +160,15 @@ public sealed class HevProcessHost : IAsyncDisposable
 
             _process.Dispose();
             _process = null;
+        }
+
+        // Release only the exact host route created by this process, and only
+        // after HEV has definitely exited. If cleanup fails, retain the lease
+        // and runtime config so a later StopAsync can retry safely.
+        if (_upstreamRouteLease is not null)
+        {
+            await _upstreamRouteLease.ReleaseAsync();
+            _upstreamRouteLease = null;
         }
 
         if (_configPath is not null)
