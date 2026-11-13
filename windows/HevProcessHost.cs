@@ -8,8 +8,9 @@ using System.Security.Principal;
 namespace HBProxy.Windows;
 
 /// <summary>
-/// Owns the HEV process and its private runtime configuration.
-/// This class deliberately does not alter Windows routes or DNS.
+/// Owns the HEV process, private runtime configuration, and the exact route
+/// leases required for a verified full-tunnel session. DNS settings are left
+/// unchanged; DNS traffic follows the tunnel's default routes.
 /// </summary>
 public sealed class HevProcessHost : IAsyncDisposable
 {
@@ -29,6 +30,7 @@ public sealed class HevProcessHost : IAsyncDisposable
     }
 
     public bool IsRunning => _process is { HasExited: false };
+    public IPAddress? VerifiedEgressAddress { get; private set; }
 
     private void RestrictRuntimeDirectory()
     {
@@ -98,6 +100,7 @@ public sealed class HevProcessHost : IAsyncDisposable
             startInfo.ArgumentList.Add(_configPath);
 
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            _process.Exited += (_, _) => _ = HandleUnexpectedExitAsync();
             _process.OutputDataReceived += (_, e) => { /* Never write tunnel output: it may contain sensitive diagnostics. */ };
             _process.ErrorDataReceived += (_, e) => { /* Never write tunnel output: it may contain sensitive diagnostics. */ };
 
@@ -131,6 +134,11 @@ public sealed class HevProcessHost : IAsyncDisposable
                     // adapter is present and confirmed up.
                     _tunnelDefaultRouteLease = await TunnelDefaultRouteLease.AcquireAsync(
                         ipv4Index, cancellationToken);
+
+                    // Do not report startup success until a real TLS request
+                    // exits through the newly installed tunnel routes.
+                    VerifiedEgressAddress = await TunnelConnectivityVerifier.VerifyHttpsEgressAsync(
+                        cancellationToken);
                     return;
                 }
 
@@ -147,6 +155,19 @@ public sealed class HevProcessHost : IAsyncDisposable
         finally
         {
             _gate.Release();
+        }
+    }
+
+    private async Task HandleUnexpectedExitAsync()
+    {
+        try
+        {
+            await StopAsync();
+        }
+        catch
+        {
+            // Retain any unreleased lease/configuration for a later explicit
+            // StopAsync retry; never remove state while cleanup is uncertain.
         }
     }
 
@@ -212,7 +233,10 @@ public sealed class HevProcessHost : IAsyncDisposable
         }
 
         if (_process is null && _tunnelDefaultRouteLease is null && _upstreamRouteLease is null && _configPath is null)
+        {
             _networkSnapshot = null;
+            VerifiedEgressAddress = null;
+        }
     }
 
     public async ValueTask DisposeAsync()
