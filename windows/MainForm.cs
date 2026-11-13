@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Net;
+using System.Security.Cryptography;
 using System.Windows.Forms;
 
 namespace HBProxy.Windows;
@@ -202,9 +203,10 @@ public sealed class MainForm : Form
 
         try
         {
+            var noCredentials = string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text);
             var profile = new Socks5Profile(_server.Text.Trim(), port,
-                string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text) ? null : _username.Text,
-                string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text) ? null : _password.Text,
+                noCredentials ? null : _username.Text,
+                noCredentials ? null : _password.Text,
                 _udp.Checked);
             profile.Validate();
             _settings.Save(profile.ServerAddress, profile.Port, profile.EnableUdp);
