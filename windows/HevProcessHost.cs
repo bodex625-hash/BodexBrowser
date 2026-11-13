@@ -19,6 +19,7 @@ public sealed class HevProcessHost : IAsyncDisposable
     private string? _configPath;
     private UpstreamRouteLease? _upstreamRouteLease;
     private TunnelDefaultRouteLease? _tunnelDefaultRouteLease;
+    private WindowsFirewallKillSwitchLease? _firewallLease;
     private WindowsNetworkSnapshot? _networkSnapshot;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -82,6 +83,12 @@ public sealed class HevProcessHost : IAsyncDisposable
             _networkSnapshot = await WindowsNetworkSnapshot.CaptureAsync(cancellationToken);
             var routePlan = UpstreamRoutePlan.Create(_networkSnapshot.Routes, serverAddress);
             _upstreamRouteLease = await UpstreamRouteLease.AcquireAsync(routePlan, cancellationToken);
+
+            // Install the fail-closed physical/virtual interface policy before
+            // starting HEV. Only the SOCKS server address remains reachable
+            // outside the tunnel while it is being brought up.
+            _firewallLease = await WindowsFirewallKillSwitchLease.AcquireAsync(
+                serverAddress, cancellationToken);
 
             Directory.CreateDirectory(_runtimeDirectory);
             RestrictRuntimeDirectory();
@@ -210,6 +217,14 @@ public sealed class HevProcessHost : IAsyncDisposable
             _tunnelDefaultRouteLease = null;
         }
 
+        // Keep the kill switch active until the tunnel defaults have been
+        // removed. This prevents a brief direct-egress window on shutdown.
+        if (_firewallLease is not null)
+        {
+            await _firewallLease.ReleaseAsync();
+            _firewallLease = null;
+        }
+
         // Release only the exact host route created for the SOCKS endpoint.
         // If cleanup fails, retain the lease and runtime config for retry.
         if (_upstreamRouteLease is not null)
@@ -232,7 +247,7 @@ public sealed class HevProcessHost : IAsyncDisposable
             // On any other deletion failure retain the path so cleanup can be retried.
         }
 
-        if (_process is null && _tunnelDefaultRouteLease is null && _upstreamRouteLease is null && _configPath is null)
+        if (_process is null && _tunnelDefaultRouteLease is null && _firewallLease is null && _upstreamRouteLease is null && _configPath is null)
         {
             _networkSnapshot = null;
             VerifiedEgressAddress = null;
