@@ -142,17 +142,12 @@ public sealed class WindowsDnsLease : IAsyncDisposable
             commands.Add(
                 identity +
                 "if($null -eq $a) { throw 'Captured adapter is not currently present: " + Quote(item.InterfaceAlias) + ".' }; " +
-                (!item.IPv4Static || !item.IPv6Static
+                (!item.IPv4Static && !item.IPv6Static
                     ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction Stop; "
-                    : "") +
-                (item.IPv4Static
-                    ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -AddressFamily IPv4 -ServerAddresses @(" +
-                      string.Join(",", item.IPv4ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; "
-                    : "") +
-                (item.IPv6Static
-                    ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -AddressFamily IPv6 -ServerAddresses @(" +
-                      string.Join(",", item.IPv6ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; "
-                    : ""));
+                    : "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses @(" +
+                      string.Join(",", (item.IPv4Static ? item.IPv4ServerAddresses : Array.Empty<string>())
+                          .Concat(item.IPv6Static ? item.IPv6ServerAddresses : Array.Empty<string>())
+                          .Select(Quote)) + ") -ErrorAction Stop; "));
         }
         commands.Add("Write-Output 'OK'");
         return RunPowerShellAsync(string.Join(" ", commands), cancellationToken);
