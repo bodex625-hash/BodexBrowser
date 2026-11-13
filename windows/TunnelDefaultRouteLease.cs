@@ -45,8 +45,8 @@ public sealed class TunnelDefaultRouteLease : IAsyncDisposable
             "if ($i4.Count -ne 1 -or $i6.Count -ne 1) { throw 'The HBProxy interface is missing an IP family.' }; " +
             "$old4=@(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix $v4 -ErrorAction SilentlyContinue); " +
             "$old6=@(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix $v6 -ErrorAction SilentlyContinue); " +
-            "$best4=2147483647; foreach($r in $old4) { $m=@($interfaces | Where-Object {$_.InterfaceIndex -eq $r.InterfaceIndex -and $_.AddressFamily -eq 'IPv4'} | Select-Object -First 1); if($m.Count -eq 0) {$im=0} else {$im=[int]$m[0].InterfaceMetric}; $t=[int]$r.RouteMetric+$im; if($t -lt $best4){$best4=$t} }; " +
-            "$best6=2147483647; foreach($r in $old6) { $m=@(Get-NetIPInterface -InterfaceIndex $r.InterfaceIndex -AddressFamily IPv6 -ErrorAction SilentlyContinue | Select-Object -First 1); if($m.Count -eq 0) {$im=0} else {$im=[int]$m[0].InterfaceMetric}; $t=[int]$r.RouteMetric+$im; if($t -lt $best6){$best6=$t} }; " +
+            "$best4=2147483647; foreach($r in $old4) { $m=@($allInterfaces | Where-Object {$_.InterfaceIndex -eq $r.InterfaceIndex -and $_.AddressFamily -eq 'IPv4'} | Select-Object -First 1); if($m.Count -eq 0) {$im=0} else {$im=[int]$m[0].InterfaceMetric}; $t=[int]$r.RouteMetric+$im; if($t -lt $best4){$best4=$t} }; " +
+            "$best6=2147483647; foreach($r in $old6) { $m=@($allInterfaces | Where-Object {$_.InterfaceIndex -eq $r.InterfaceIndex -and $_.AddressFamily -eq 'IPv6'} | Select-Object -First 1); if($m.Count -eq 0) {$im=0} else {$im=[int]$m[0].InterfaceMetric}; $t=[int]$r.RouteMetric+$im; if($t -lt $best6){$best6=$t} }; " +
             "$new4=$metric+[int]$i4[0].InterfaceMetric; $new6=$metric+[int]$i6[0].InterfaceMetric; " +
             "if($new4 -ge $best4 -or $new6 -ge $best6) { throw 'HBProxy cannot win both default-route metrics safely.' }; " +
             "if(@($old4 | Where-Object {$_.InterfaceIndex -eq $ifIndex}).Count -gt 0 -or @($old6 | Where-Object {$_.InterfaceIndex -eq $ifIndex}).Count -gt 0) { throw 'An HBProxy default route already exists; refusing to claim it.' }; " +
