@@ -332,12 +332,85 @@ public sealed class MainForm : Form
                 ? "CONNECTION FAILED  •  NETWORK RESTORED"
                 : "CLEANUP FAILED  •  NETWORK PROTECTION RETAINED";
             _status.ForeColor = Color.FromArgb(255, 110, 110);
-            MessageBox.Show(this, reportedError.Message, "H.B Proxy connection", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowDiagnosticError(reportedError, "H.B Proxy connection diagnostics");
         }
         finally
         {
             _connect.Enabled = true;
         }
+    }
+
+    private void ShowDiagnosticError(Exception exception, string title)
+    {
+        var details = exception.ToString();
+        using var dialog = new Form
+        {
+            Text = title,
+            StartPosition = FormStartPosition.CenterParent,
+            Size = new Size(760, 560),
+            MinimumSize = new Size(560, 380),
+            BackColor = Color.FromArgb(10, 18, 34),
+            ForeColor = Color.FromArgb(225, 239, 255),
+            Font = new Font("Segoe UI", 9F)
+        };
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(12),
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = dialog.BackColor
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+
+        var output = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            WordWrap = false,
+            ScrollBars = ScrollBars.Both,
+            BackColor = Color.FromArgb(8, 19, 35),
+            ForeColor = Color.FromArgb(225, 239, 255),
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 9F),
+            Text = details
+        };
+        layout.Controls.Add(output, 0, 0);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            BackColor = dialog.BackColor,
+            Padding = new Padding(0, 8, 0, 0)
+        };
+        var close = new Button { Text = "CLOSE", Width = 110, Height = 32, DialogResult = DialogResult.OK };
+        var copy = new Button { Text = "COPY DETAILS", Width = 140, Height = 32 };
+        copy.Click += (_, _) =>
+        {
+            try
+            {
+                Clipboard.SetText(details);
+                copy.Text = "COPIED";
+            }
+            catch (Exception copyError)
+            {
+                MessageBox.Show(dialog, copyError.Message, "Clipboard error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        };
+        buttons.Controls.Add(close);
+        buttons.Controls.Add(copy);
+        layout.Controls.Add(buttons, 0, 1);
+
+        dialog.Controls.Add(layout);
+        dialog.AcceptButton = close;
+        dialog.CancelButton = close;
+        dialog.ShowDialog(this);
     }
 
     private void CheckTunnelHealth()
