@@ -128,8 +128,8 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         if (remotePort.HasValue)
             script.Append("-RemotePort ").Append(remotePort.Value.ToString(CultureInfo.InvariantCulture)).Append(' ');
         script.Append("-ErrorAction Stop | Out-Null } catch { ");
-        script.Append("throw ('HBPROXY_RULE_FAILURE name=").Append(Quote(name))
-            .Append(" interface=' + $iface + ' protocol=").Append(protocol)
+        script.Append("throw ('HBPROXY_RULE_FAILURE name=' + ").Append(Quote(name))
+            .Append(" + ' interface=' + $iface + ' protocol=").Append(protocol)
             .Append(" remotePort=").Append(remotePort?.ToString(CultureInfo.InvariantCulture) ?? "none")
             .Append(" addressCount=").Append(remoteAddresses.Count.ToString(CultureInfo.InvariantCulture))
             .Append(" error=' + $_.Exception.Message + ' category=' + $_.CategoryInfo.Category + ' id=' + $_.FullyQualifiedErrorId) ");
