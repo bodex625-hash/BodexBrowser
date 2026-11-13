@@ -1,36 +1,27 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Text.Json;
 
 namespace HBProxy.Windows;
 
 /// <summary>
-/// Performs staged DNS, TCP, TLS and public-egress checks after full-tunnel
-/// routes are installed. The system proxy is disabled deliberately.
+/// Performs DNS-over-HTTPS, TCP, TLS and public-egress checks after full-tunnel
+/// routes are installed. Both DNS and the final HTTPS request use the tunnel;
+/// neither relies on the Windows system resolver or system proxy.
 /// </summary>
 public static class TunnelConnectivityVerifier
 {
     private const string Host = "api.ipify.org";
+    private static readonly IPAddress DohAddress = IPAddress.Parse("1.1.1.1");
+    private const string DohHost = "cloudflare-dns.com";
 
     public static async Task<IPAddress> VerifyHttpsEgressAsync(
         CancellationToken cancellationToken = default)
     {
-        IPAddress[] addresses;
-        try
-        {
-            addresses = await Dns.GetHostAddressesAsync(Host, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            throw new InvalidOperationException(
-                $"Tunnel check failed at DNS resolution for {Host}: {Describe(ex)}", ex);
-        }
-
-        if (addresses.Length == 0)
-            throw new InvalidOperationException(
-                $"Tunnel check failed at DNS resolution: {Host} returned no IP addresses.");
-
+        var addresses = await ResolveThroughTunnelAsync(cancellationToken);
         var attempted = new List<string>();
+
         using var handler = new SocketsHttpHandler
         {
             UseProxy = false,
@@ -60,7 +51,7 @@ public static class TunnelConnectivityVerifier
                 }
 
                 throw new IOException(
-                    $"TCP connection to {Host}:443 failed for resolved addresses [{string.Join(", ", attempted)}]. {Describe(lastError)}",
+                    $"TCP connection to {Host}:443 failed for DoH-resolved addresses [{string.Join(", ", attempted)}]. {Describe(lastError)}",
                     lastError);
             }
         };
@@ -97,6 +88,76 @@ public static class TunnelConnectivityVerifier
                     "The HTTPS egress check returned an invalid, private, or reserved IP address.");
 
             return publicAddress;
+        }
+    }
+
+    private static async Task<IPAddress[]> ResolveThroughTunnelAsync(CancellationToken cancellationToken)
+    {
+        using var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+            AllowAutoRedirect = false,
+            ConnectTimeout = TimeSpan.FromSeconds(8),
+            ConnectCallback = async (_, token) =>
+            {
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(DohAddress, 443), token);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            }
+        };
+
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://{DohHost}/dns-query?name={Uri.EscapeDataString(Host)}&type=A");
+        request.Headers.Accept.ParseAdd("application/dns-json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await client.SendAsync(request, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Tunnel DNS-over-HTTPS request to Cloudflare (1.1.1.1) failed: {Describe(ex)}", ex);
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Tunnel DNS-over-HTTPS returned HTTP {(int)response.StatusCode}.");
+
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var root = document.RootElement;
+            if (!root.TryGetProperty("Status", out var status) || status.GetInt32() != 0)
+                throw new InvalidOperationException(
+                    $"Tunnel DNS-over-HTTPS could not resolve {Host}; DNS status was " +
+                    (root.TryGetProperty("Status", out status) ? status.ToString() : "missing") + ".");
+
+            if (!root.TryGetProperty("Answer", out var answers) || answers.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"Tunnel DNS-over-HTTPS returned no A records for {Host}.");
+
+            var addresses = answers.EnumerateArray()
+                .Where(answer => answer.TryGetProperty("type", out var type) && type.GetInt32() == 1)
+                .Select(answer => answer.TryGetProperty("data", out var data) ? data.GetString() : null)
+                .Where(value => IPAddress.TryParse(value, out _))
+                .Select(value => IPAddress.Parse(value!))
+                .ToArray();
+
+            if (addresses.Length == 0)
+                throw new InvalidOperationException($"Tunnel DNS-over-HTTPS returned no valid IPv4 addresses for {Host}.");
+
+            return addresses;
         }
     }
 
