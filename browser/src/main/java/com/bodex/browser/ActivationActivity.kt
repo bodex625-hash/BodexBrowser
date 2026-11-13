@@ -6,10 +6,13 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
@@ -24,10 +27,14 @@ class ActivationActivity : Activity() {
     private lateinit var codeInput: EditText
     private lateinit var activateButton: Button
 
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = black
         window.navigationBarColor = black
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         buildScreen()
         status.text = "جارٍ التحقق من الاشتراك..."
         setControls(false)
@@ -38,18 +45,19 @@ class ActivationActivity : Activity() {
     }
 
     private fun buildScreen() {
-        val root = LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(16, 24, 16, 24)
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(18), dp(16), dp(18))
             setBackgroundColor(black)
         }
         val logo = TextView(this).apply {
             text = "HB"
-            textSize = 42f
+            textSize = 38f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(accent)
             gravity = Gravity.CENTER
+            includeFontPadding = false
         }
         val title = TextView(this).apply {
             text = "HB Browser"
@@ -57,41 +65,40 @@ class ActivationActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
+            includeFontPadding = false
         }
         val subtitle = TextView(this).apply {
             text = "كود واحد يفعّل HB Browser و H.B Proxy"
             textSize = 15f
             setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(0, 10, 0, 26)
+            setPadding(0, dp(10), 0, dp(22))
         }
         codeInput = EditText(this).apply {
             hint = "أدخل كود الاشتراك"
-            textSize = 21f
+            textSize = 17f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setSingleLine(true)
             maxLines = 1
             setHorizontallyScrolling(true)
-            textDirection = android.view.View.TEXT_DIRECTION_LTR
-            textAlignment = android.view.View.TEXT_ALIGNMENT_CENTER
-            minWidth = 0
-            minimumWidth = 0
+            textDirection = View.TEXT_DIRECTION_LTR
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
             imeOptions = EditorInfo.IME_ACTION_DONE
             setTextColor(Color.WHITE)
             setHintTextColor(muted)
-            gravity = Gravity.CENTER
-            setPadding(22, 18, 22, 18)
-            includeFontPadding = true
-            background = rounded(panel, accent, 3)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12), 0, dp(12), 0)
+            includeFontPadding = false
+            background = rounded(panel, accent, dp(1))
         }
         activateButton = Button(this).apply {
             text = "تفعيل الاشتراك"
             textSize = 17f
             isAllCaps = false
             gravity = Gravity.CENTER
-            includeFontPadding = true
+            includeFontPadding = false
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(black)
             background = rounded(accent, accent, 0)
@@ -101,7 +108,7 @@ class ActivationActivity : Activity() {
             minimumHeight = 0
             minWidth = 0
             minimumWidth = 0
-            setPadding(20, 14, 20, 14)
+            setPadding(dp(12), 0, dp(12), 0)
             elevation = 0f
             setOnClickListener { activate() }
         }
@@ -109,26 +116,31 @@ class ActivationActivity : Activity() {
             textSize = 13f
             setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(8, 20, 8, 0)
+            setPadding(dp(8), dp(14), dp(8), 0)
         }
 
-        root.addView(logo, LinearLayout.LayoutParams(-1, 68))
-        root.addView(title, LinearLayout.LayoutParams(-1, -2))
-        root.addView(subtitle, LinearLayout.LayoutParams(-1, -2))
-        root.addView(codeInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 76))
-        root.addView(activateButton, LinearLayout.LayoutParams(-1, 60).apply {
-            topMargin = 16
+        content.addView(logo, LinearLayout.LayoutParams(-1, dp(56)))
+        content.addView(title, LinearLayout.LayoutParams(-1, dp(38)))
+        content.addView(subtitle, LinearLayout.LayoutParams(-1, -2))
+        content.addView(codeInput, LinearLayout.LayoutParams(-1, dp(58)))
+        content.addView(activateButton, LinearLayout.LayoutParams(-1, dp(54)).apply {
+            topMargin = dp(12)
         })
-        root.addView(status, LinearLayout.LayoutParams(-1, -2).apply {
-            topMargin = 2
-        })
-        setContentView(root)
+        content.addView(status, LinearLayout.LayoutParams(-1, -2))
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setBackgroundColor(black)
+            addView(content, ScrollView.LayoutParams(-1, -2))
+        }
+        setContentView(scroll)
     }
 
     private fun rounded(color: Int, stroke: Int, strokeWidth: Int): GradientDrawable =
         GradientDrawable().apply {
             setColor(color)
-            cornerRadius = 16f
+            cornerRadius = dp(12).toFloat()
             if (strokeWidth > 0) setStroke(strokeWidth, stroke)
         }
 
