@@ -100,6 +100,8 @@ class BodexVpnService : VpnService() {
                 append("  address: \"").append(yaml(proxyAddress.hostAddress)).append("\"\n")
                 append("  port: ").append(port).append("\n")
                 append("  udp: 'udp'\n")
+                // Pipeline SOCKS5 negotiation to avoid an extra handshake round trip per new TCP session.
+                append("  pipeline: true\n")
                 if (user.isNotEmpty() && pass.isNotEmpty()) {
                     append("  username: \"").append(yaml(user)).append("\"\n")
                     append("  password: \"").append(yaml(pass)).append("\"\n")
