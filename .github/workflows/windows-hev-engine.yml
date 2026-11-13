@@ -59,6 +59,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item hev-socks5-tunnel/bin/hev-socks5-tunnel.exe dist/
+          Copy-Item hev-socks5-tunnel/third-part/wintun/bin/amd64/wintun.dll dist/wintun.dll
+          if (!(Test-Path 'dist/wintun.dll')) { throw 'Matching x64 Wintun DLL was not produced or found' }
+          dumpbin /headers dist/wintun.dll | Select-String '8664 machine'
+          if ($LASTEXITCODE -ne 0) { throw 'Wintun DLL is not verified as x64 PE' }
           $hash = (Get-FileHash dist/hev-socks5-tunnel.exe -Algorithm SHA256).Hash
           "SHA256  $hash" | Tee-Object -FilePath dist/SHA256.txt
           "HEV source commit: $env:HEV_SOURCE_COMMIT" | Write-Host
@@ -70,7 +74,8 @@ jobs:
           Architecture: Windows x64
           Binary SHA256: $hash
           Note: this artifact is the engine only, not the H.B Proxy application.
-          A matching official Wintun x64 DLL and the H.B Proxy controller are required.
+          Matching official Wintun x64 DLL is included beside the engine.
+          The H.B Proxy controller and safe route orchestration are still required.
           "@ | Out-File dist/BUILD-INFO.txt -Encoding utf8
 
       - name: Upload engine artifact
