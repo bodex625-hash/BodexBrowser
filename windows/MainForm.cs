@@ -35,7 +35,7 @@ public sealed class MainForm : Form
         LoadSavedProfile();
 
         _connect.Click += async (_, _) => await ToggleConnectionAsync();
-        _healthTimer.Tick += (_, _) => CheckTunnelHealth();
+        _healthTimer.Tick += async (_, _) => await CheckTunnelHealthAsync();
         _healthTimer.Start();
 
         FormClosing += async (_, e) =>
@@ -457,15 +457,36 @@ public sealed class MainForm : Form
         dialog.ShowDialog(this);
     }
 
-    private void CheckTunnelHealth()
+    private async Task CheckTunnelHealthAsync()
     {
         if (!_connectionEstablished || _host.IsRunning)
             return;
 
-        _connectionEstablished = false;
-        _udp.Enabled = true;
-        _connect.Text = "CONNECT";
-        _status.Text = "PROXY ENGINE STOPPED  •  CHECK CONNECTION";
-        _status.ForeColor = Color.FromArgb(255, 110, 110);
+        _healthTimer.Stop();
+        try
+        {
+            if (_dnsLease is not null)
+            {
+                await _dnsLease.ReleaseAsync();
+                _dnsLease = null;
+            }
+            if (_dnsForwarder is not null)
+            {
+                await _dnsForwarder.DisposeAsync();
+                _dnsForwarder = null;
+            }
+
+            _connectionEstablished = false;
+            _udp.Enabled = true;
+            _connect.Text = "CONNECT";
+            _status.Text = "PROXY ENGINE STOPPED  •  DNS RESTORED";
+            _status.ForeColor = Color.FromArgb(255, 110, 110);
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "ENGINE STOPPED  •  DNS RECOVERY NEEDS ATTENTION";
+            _status.ForeColor = Color.FromArgb(255, 110, 110);
+            ShowDiagnosticError(ex, "H.B Proxy DNS recovery");
+        }
     }
 }
