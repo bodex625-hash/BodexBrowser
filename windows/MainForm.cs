@@ -311,11 +311,14 @@ public sealed class MainForm : Form
             _status.ForeColor = Color.FromArgb(255, 194, 92);
             _dnsForwarder = new Socks5DnsForwarder(profile);
             await _dnsForwarder.StartAsync();
-            // Keep public traffic blocked unless it is addressed to the configured
-            // SOCKS5 endpoint. This remains active if the interception engine exits.
-            _killSwitch = await WindowsFirewallKillSwitchLease.AcquireAsync(
-                IPAddress.Parse(profile.ServerAddress));
-            await _host.StartAsync(profile);
+            // ProxyBridge's preflight test uses local DNS to resolve its test
+            // destination. Install the firewall guard only after that test passes,
+            // but before the native packet interception engine starts.
+            await _host.StartAsync(profile, () =>
+            {
+                _killSwitch = WindowsFirewallKillSwitchLease.AcquireAsync(
+                    IPAddress.Parse(profile.ServerAddress)).GetAwaiter().GetResult();
+            });
             _status.Text = "CONNECTING  •  CONFIGURING PRIVATE DNS OVER SOCKS5";
             _dnsLease = await WindowsDnsLease.AcquireAsync();
             await _dnsForwarder.VerifyAsync();
