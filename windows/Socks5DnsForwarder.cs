@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -57,6 +58,54 @@ public sealed class Socks5DnsForwarder : IAsyncDisposable
             _httpClient.Dispose();
             throw;
         }
+    }
+
+    public async Task VerifyAsync(CancellationToken cancellationToken = default)
+    {
+        var queryName = "hbproxy-" + Guid.NewGuid().ToString("N") + ".example.com";
+        var query = BuildDnsQuery(queryName);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        using var client = new UdpClient(AddressFamily.InterNetwork);
+        await client.SendAsync(query, new IPEndPoint(IPAddress.Loopback, 53), timeout.Token);
+        var result = await client.ReceiveAsync(timeout.Token);
+        if (!IPAddress.IsLoopback(result.RemoteEndPoint.Address) ||
+            result.Buffer.Length < 12 ||
+            BinaryPrimitives.ReadUInt16BigEndian(result.Buffer.AsSpan(0, 2)) !=
+                BinaryPrimitives.ReadUInt16BigEndian(query.AsSpan(0, 2)))
+            throw new InvalidOperationException("The local DNS forwarder returned an invalid response.");
+
+        ushort flags = BinaryPrimitives.ReadUInt16BigEndian(result.Buffer.AsSpan(2, 2));
+        int responseCode = flags & 0x000F;
+        if ((flags & 0x8000) == 0 || (responseCode != 0 && responseCode != 3))
+            throw new InvalidOperationException("The DNS-over-HTTPS tunnel did not return a valid DNS answer (RCODE=" + responseCode + ").");
+    }
+
+    private static byte[] BuildDnsQuery(string domain)
+    {
+        var labels = domain.Split('.');
+        var encoded = labels.Select(Encoding.ASCII.GetBytes).ToArray();
+        if (encoded.Any(label => label.Length is < 1 or > 63))
+            throw new ArgumentException("Invalid DNS test name.", nameof(domain));
+
+        int nameLength = encoded.Sum(label => label.Length + 1) + 1;
+        var packet = new byte[12 + nameLength + 4];
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(0, 2),
+            (ushort)System.Security.Cryptography.RandomNumberGenerator.GetInt32(1, 65536));
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2, 2), 0x0100);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(4, 2), 1);
+
+        int offset = 12;
+        foreach (var label in encoded)
+        {
+            packet[offset++] = (byte)label.Length;
+            label.CopyTo(packet, offset);
+            offset += label.Length;
+        }
+        packet[offset++] = 0;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(offset, 2), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(offset + 2, 2), 1);
+        return packet;
     }
 
     private async Task ReceiveLoopAsync(UdpClient listener, CancellationToken token)
