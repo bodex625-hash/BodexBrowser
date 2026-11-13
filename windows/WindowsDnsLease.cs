@@ -28,7 +28,7 @@ public sealed class WindowsDnsLease : IAsyncDisposable
 
         var captured = await WindowsDnsSnapshot.CaptureAsync(cancellationToken);
         var snapshot = captured.Entries
-            .GroupBy(e => new { e.InterfaceIndex, e.InterfaceAlias })
+            .GroupBy(e => e.InterfaceGuid)
             .Select(group =>
             {
                 var ipv4 = group.FirstOrDefault(e => e.AddressFamily == "IPv4");
@@ -36,8 +36,8 @@ public sealed class WindowsDnsLease : IAsyncDisposable
                 if (ipv4 is null || ipv6 is null)
                     throw new InvalidOperationException("Windows returned an incomplete IPv4/IPv6 DNS snapshot.");
                 return new AdapterDns(
-                    group.Key.InterfaceIndex,
-                    group.Key.InterfaceAlias,
+                    ipv4.InterfaceIndex,
+                    ipv4.InterfaceAlias,
                     ipv4.ServerAddresses.Select(a => a.ToString()).ToArray(),
                     ipv4.IsStatic,
                     ipv6.ServerAddresses.Select(a => a.ToString()).ToArray(),
