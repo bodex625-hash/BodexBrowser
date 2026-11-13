@@ -5,38 +5,110 @@ using System.Net.Sockets;
 namespace HBProxy.Windows;
 
 /// <summary>
-/// Performs a real TLS request after the full-tunnel routes are installed.
-/// The system proxy is disabled so success depends on Windows routing through
-/// the HBProxy interface rather than an unrelated configured HTTP proxy.
+/// Performs staged DNS, TCP, TLS and public-egress checks after full-tunnel
+/// routes are installed. The system proxy is disabled deliberately.
 /// </summary>
 public static class TunnelConnectivityVerifier
 {
+    private const string Host = "api.ipify.org";
+
     public static async Task<IPAddress> VerifyHttpsEgressAsync(
         CancellationToken cancellationToken = default)
     {
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(Host, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Tunnel check failed at DNS resolution for {Host}: {Describe(ex)}", ex);
+        }
+
+        if (addresses.Length == 0)
+            throw new InvalidOperationException(
+                $"Tunnel check failed at DNS resolution: {Host} returned no IP addresses.");
+
+        var attempted = new List<string>();
         using var handler = new SocketsHttpHandler
         {
             UseProxy = false,
             AllowAutoRedirect = false,
             ConnectTimeout = TimeSpan.FromSeconds(10),
-            PooledConnectionLifetime = TimeSpan.Zero
+            PooledConnectionLifetime = TimeSpan.Zero,
+            ConnectCallback = async (context, token) =>
+            {
+                Exception? lastError = null;
+                foreach (var address in addresses)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                    try
+                    {
+                        attempted.Add(address.ToString());
+                        await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+                    {
+                        socket.Dispose();
+                        lastError = ex;
+                        if (ex is OperationCanceledException)
+                            throw;
+                    }
+                }
+
+                throw new IOException(
+                    $"TCP connection to {Host}:443 failed for resolved addresses [{string.Join(", ", attempted)}]. {Describe(lastError)}",
+                    lastError);
+            }
         };
-        using var client = new HttpClient(handler)
+
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://{Host}/");
+        HttpResponseMessage response;
+        try
         {
-            Timeout = TimeSpan.FromSeconds(15)
-        };
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.ipify.org/");
-        using var response = await client.SendAsync(
-            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var body = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();
-        if (!IPAddress.TryParse(body, out var publicAddress) || !IsPublicAddress(publicAddress))
+            response = await client.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Tunnel HTTPS check timed out while connecting to {Host}:443. " +
+                "Check SOCKS5 server reachability, credentials, UDP support and tunnel routing.", ex);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
             throw new InvalidOperationException(
-                "The HTTPS egress check returned an invalid, private, or reserved IP address.");
+                $"Tunnel HTTPS/TLS check failed for {Host}:443: {Describe(ex)}", ex);
+        }
 
-        return publicAddress;
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Tunnel HTTPS check reached {Host}, but the server returned HTTP {(int)response.StatusCode}.");
+
+            var body = (await response.Content.ReadAsStringAsync(cancellationToken)).Trim();
+            if (!IPAddress.TryParse(body, out var publicAddress) || !IsPublicAddress(publicAddress))
+                throw new InvalidOperationException(
+                    "The HTTPS egress check returned an invalid, private, or reserved IP address.");
+
+            return publicAddress;
+        }
+    }
+
+    private static string Describe(Exception? exception)
+    {
+        if (exception is null)
+            return "No lower-level error details were provided.";
+
+        var socket = exception as SocketException ?? exception.InnerException as SocketException;
+        return socket is null
+            ? $"{exception.GetType().Name}: {exception.Message}"
+            : $"{exception.GetType().Name}: {exception.Message} (SocketError={socket.SocketErrorCode}, NativeError={socket.NativeErrorCode})";
     }
 
     private static bool IsPublicAddress(IPAddress address)
