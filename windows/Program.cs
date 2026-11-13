@@ -5,6 +5,8 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        // WinDivert resolves its signed driver beside the application binaries.
+        Directory.SetCurrentDirectory(AppContext.BaseDirectory);
         ApplicationConfiguration.Initialize();
 
         using var singleInstance = new Mutex(
