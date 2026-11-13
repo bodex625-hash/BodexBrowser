@@ -311,7 +311,6 @@ public sealed class MainForm : Form
             _connectionEstablished = true;
             _udp.Enabled = false;
             _connect.Text = "DISCONNECT";
-            _udp.Checked = _host.UdpEnabled;
             _status.Text = "CONNECTED  •  SYSTEM-WIDE ROUTING  •  " + (_host.UdpEnabled ? "TCP + UDP" : "TCP ONLY  •  UDP BLOCKED");
             _status.ForeColor = Color.FromArgb(80, 210, 160);
         }
