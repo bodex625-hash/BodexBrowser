@@ -11,8 +11,10 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
 {
     private const int ProxyTypeSocks5 = 1;
     private const int RuleProtocolTcp = 0;
+    private const int RuleProtocolUdp = 1;
     private const int RuleProtocolBoth = 2;
     private const int RuleActionProxy = 0;
+    private const int RuleActionBlock = 2;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate uint AddProxyConfigDelegate(
@@ -115,19 +117,38 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             _udpEnabled = profile.EnableUdp &&
                 _lastDiagnostics.Contains("UDP is supported by this proxy", StringComparison.OrdinalIgnoreCase);
 
-            int protocol = _udpEnabled ? RuleProtocolBoth : RuleProtocolTcp;
-            uint ruleId = _addRule!(
-                "*",       // all Windows processes
-                "*",       // all destination IPs
-                "*",       // all destination ports
-                "*",       // all domains; send hostnames to SOCKS5 for remote DNS resolution
-                protocol,
-                RuleActionProxy,
-                configId,
-                0);        // keep loopback/localhost traffic local
+            if (_udpEnabled)
+            {
+                uint ruleId = _addRule!(
+                    "*", "*", "*", "*",
+                    RuleProtocolBoth,
+                    RuleActionProxy,
+                    configId,
+                    0); // keep loopback/localhost traffic local
 
-            if (ruleId == 0)
-                throw new InvalidOperationException("ProxyBridge could not create the default all-applications proxy rule.");
+                if (ruleId == 0)
+                    throw new InvalidOperationException("ProxyBridge could not create the default all-applications TCP/UDP proxy rule.");
+            }
+            else
+            {
+                // Fail closed for UDP when the upstream cannot relay it (or the user
+                // disabled it). Never silently send unsupported UDP outside SOCKS5.
+                uint udpBlockRule = _addRule!(
+                    "*", "*", "*", "*",
+                    RuleProtocolUdp,
+                    RuleActionBlock,
+                    configId,
+                    0);
+                uint tcpProxyRule = _addRule!(
+                    "*", "*", "*", "*",
+                    RuleProtocolTcp,
+                    RuleActionProxy,
+                    configId,
+                    0);
+
+                if (udpBlockRule == 0 || tcpProxyRule == 0)
+                    throw new InvalidOperationException("ProxyBridge could not create the default fail-closed TCP/UDP rules.");
+            }
 
             if (_start!() == 0)
                 throw new InvalidOperationException(
