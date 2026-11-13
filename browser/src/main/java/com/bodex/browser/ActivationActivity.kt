@@ -67,7 +67,8 @@ class ActivationActivity : Activity() {
         }
         codeInput = EditText(this).apply {
             hint = "أدخل كود الاشتراك"
-            textSize = 18f
+            textSize = 21f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setSingleLine(true)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
@@ -75,13 +76,16 @@ class ActivationActivity : Activity() {
             setTextColor(Color.WHITE)
             setHintTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(18, 14, 18, 14)
-            background = rounded(panel, accent, 2)
+            setPadding(22, 18, 22, 18)
+            includeFontPadding = true
+            background = rounded(panel, accent, 3)
         }
         activateButton = Button(this).apply {
             text = "تفعيل الاشتراك"
-            textSize = 16f
+            textSize = 17f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = true
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(black)
             background = rounded(accent, accent, 0)
@@ -89,7 +93,10 @@ class ActivationActivity : Activity() {
             stateListAnimator = null
             minHeight = 0
             minimumHeight = 0
-            setPadding(18, 12, 18, 12)
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(20, 14, 20, 14)
+            elevation = 0f
             setOnClickListener { activate() }
         }
         status = TextView(this).apply {
@@ -102,8 +109,8 @@ class ActivationActivity : Activity() {
         root.addView(logo, LinearLayout.LayoutParams(-1, 68))
         root.addView(title, LinearLayout.LayoutParams(-1, -2))
         root.addView(subtitle, LinearLayout.LayoutParams(-1, -2))
-        root.addView(codeInput, LinearLayout.LayoutParams(-1, 62))
-        root.addView(activateButton, LinearLayout.LayoutParams(-1, 56).apply {
+        root.addView(codeInput, LinearLayout.LayoutParams(-1, 70))
+        root.addView(activateButton, LinearLayout.LayoutParams(-1, 60).apply {
             topMargin = 16
         })
         root.addView(status, LinearLayout.LayoutParams(-1, -2).apply {
