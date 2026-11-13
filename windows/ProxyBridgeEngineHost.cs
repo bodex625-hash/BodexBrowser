@@ -161,12 +161,18 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         }
         catch
         {
+            bool stopped = true;
             if (startAttempted)
             {
-                try { _stop?.Invoke(); } catch { }
+                try { stopped = _stop?.Invoke() != 0; }
+                catch { stopped = false; }
             }
-            _running = false;
-            ReleaseEngine();
+
+            // If native cleanup cannot be confirmed, keep the DLL loaded and let
+            // the caller retry StopAsync instead of unloading a possibly live engine.
+            _running = startAttempted && !stopped;
+            if (!_running)
+                ReleaseEngine();
             throw;
         }
         finally
