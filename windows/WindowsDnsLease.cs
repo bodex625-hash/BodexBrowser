@@ -10,7 +10,7 @@ namespace HBProxy.Windows;
 /// </summary>
 public sealed class WindowsDnsLease : IAsyncDisposable
 {
-    private sealed record AdapterDns(int InterfaceIndex, string InterfaceAlias, string[] ServerAddresses);
+    private sealed record AdapterDns(int InterfaceIndex, string InterfaceAlias, string[] IPv4ServerAddresses, bool IPv4Static, string[] IPv6ServerAddresses, bool IPv6Static);
     private static readonly string LeasePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Bodex", "HBProxy", "dns-lease.json");
@@ -29,10 +29,20 @@ public sealed class WindowsDnsLease : IAsyncDisposable
         var captured = await WindowsDnsSnapshot.CaptureAsync(cancellationToken);
         var snapshot = captured.Entries
             .GroupBy(e => new { e.InterfaceIndex, e.InterfaceAlias })
-            .Select(group => new AdapterDns(
-                group.Key.InterfaceIndex,
-                group.Key.InterfaceAlias,
-                group.SelectMany(e => e.ServerAddresses).Select(a => a.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
+            .Select(group =>
+            {
+                var ipv4 = group.FirstOrDefault(e => e.AddressFamily == "IPv4");
+                var ipv6 = group.FirstOrDefault(e => e.AddressFamily == "IPv6");
+                if (ipv4 is null || ipv6 is null)
+                    throw new InvalidOperationException("Windows returned an incomplete IPv4/IPv6 DNS snapshot.");
+                return new AdapterDns(
+                    group.Key.InterfaceIndex,
+                    group.Key.InterfaceAlias,
+                    ipv4.ServerAddresses.Select(a => a.ToString()).ToArray(),
+                    ipv4.IsStatic,
+                    ipv6.ServerAddresses.Select(a => a.ToString()).ToArray(),
+                    ipv6.IsStatic);
+            })
             .ToArray();
 
         if (snapshot.Length == 0)
@@ -130,10 +140,17 @@ public sealed class WindowsDnsLease : IAsyncDisposable
                 "$a=Get-NetAdapter -InterfaceIndex " + index + " -ErrorAction SilentlyContinue; " +
                 "if($null -ne $a) { " +
                 "if($a.Name -ne " + alias + ") { throw 'Adapter identity changed for interface index " + index + ".' }; " +
-                (item.ServerAddresses.Length == 0
+                (!item.IPv4Static || !item.IPv6Static
                     ? "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ResetServerAddresses -ErrorAction Stop; "
-                    : "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ServerAddresses @(" +
-                      string.Join(",", item.ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; ") +
+                    : "") +
+                (item.IPv4Static
+                    ? "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ServerAddresses @(" +
+                      string.Join(",", item.IPv4ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; "
+                    : "") +
+                (item.IPv6Static
+                    ? "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ServerAddresses @(" +
+                      string.Join(",", item.IPv6ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; "
+                    : "") +
                 "}");
         }
         commands.Add("Write-Output 'OK'");
