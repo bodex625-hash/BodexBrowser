@@ -1,6 +1,5 @@
 using System.Drawing;
 using System.Net;
-using System.Security.Cryptography;
 using System.Windows.Forms;
 
 namespace HBProxy.Windows;
@@ -16,6 +15,10 @@ public sealed class MainForm : Form
     private readonly Button _connect = new();
     private readonly CredentialStore _credentials = new();
     private readonly ProfileSettingsStore _settings = new();
+    private readonly HevProcessHost _host = new();
+    private readonly System.Windows.Forms.Timer _healthTimer = new() { Interval = 1000 };
+    private bool _connectionEstablished;
+    private bool _allowClose;
 
     public MainForm()
     {
@@ -28,6 +31,40 @@ public sealed class MainForm : Form
         Font = new Font("Segoe UI", 10F);
         BuildInterface();
         LoadSavedProfile();
+
+        _connect.Click += async (_, _) => await ToggleConnectionAsync();
+        _healthTimer.Tick += (_, _) => CheckTunnelHealth();
+        _healthTimer.Start();
+
+        FormClosing += async (_, e) =>
+        {
+            if (_allowClose)
+                return;
+
+            e.Cancel = true;
+            _connect.Enabled = false;
+            _healthTimer.Stop();
+            try
+            {
+                await _host.DisposeAsync();
+                _allowClose = true;
+                BeginInvoke(Close);
+            }
+            catch (Exception ex)
+            {
+                _status.Text = "NETWORK CLEANUP NEEDS ATTENTION";
+                _status.ForeColor = Color.FromArgb(255, 110, 110);
+                MessageBox.Show(this,
+                    "The tunnel could not be safely stopped. Keep this window open and retry disconnect. " +
+                    "If the application is forcibly closed, startup recovery will remove the previous session.\n\n" +
+                    ex.Message,
+                    "H.B Proxy cleanup",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                _connect.Enabled = true;
+                _healthTimer.Start();
+            }
+        };
     }
 
     private void BuildInterface()
@@ -125,7 +162,7 @@ public sealed class MainForm : Form
             BackColor = Color.FromArgb(17, 31, 53),
             Padding = new Padding(16, 8, 16, 8)
         };
-        _status.Text = "SETUP ONLY  •  TUNNEL NOT CONNECTED";
+        _status.Text = "DISCONNECTED  •  READY";
         _status.Dock = DockStyle.Fill;
         _status.ForeColor = Color.FromArgb(255, 194, 92);
         _status.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
@@ -135,8 +172,8 @@ public sealed class MainForm : Form
 
         _connect.Text = "CONNECT";
         _connect.Dock = DockStyle.Fill;
-        _connect.Enabled = false;
-        _connect.BackColor = Color.FromArgb(30, 86, 125);
+        _connect.Enabled = true;
+        _connect.BackColor = Color.FromArgb(30, 112, 165);
         _connect.ForeColor = Color.White;
         _connect.FlatStyle = FlatStyle.Flat;
         _connect.FlatAppearance.BorderSize = 0;
@@ -182,41 +219,133 @@ public sealed class MainForm : Form
         catch (System.Security.Cryptography.CryptographicException)
         {
             _status.Text = "SAVED CREDENTIALS COULD NOT BE DECRYPTED";
+            _status.ForeColor = Color.FromArgb(255, 110, 110);
         }
     }
 
-    private void SaveProfile()
+    private bool TryBuildProfile(out Socks5Profile? profile)
     {
+        profile = null;
         if (!IPAddress.TryParse(_server.Text.Trim(), out _))
         {
             MessageBox.Show(this, "Enter the SOCKS5 server as a valid IP address.", "Invalid server", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _server.Focus();
-            return;
+            return false;
         }
 
         if (!int.TryParse(_port.Text.Trim(), out var port) || port is < 1 or > 65535)
         {
             MessageBox.Show(this, "Port must be a number between 1 and 65535.", "Invalid port", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _port.Focus();
-            return;
+            return false;
         }
+
+        var noCredentials = string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text);
+        profile = new Socks5Profile(_server.Text.Trim(), port,
+            noCredentials ? null : _username.Text,
+            noCredentials ? null : _password.Text,
+            _udp.Checked);
 
         try
         {
-            var noCredentials = string.IsNullOrEmpty(_username.Text) && string.IsNullOrEmpty(_password.Text);
-            var profile = new Socks5Profile(_server.Text.Trim(), port,
-                noCredentials ? null : _username.Text,
-                noCredentials ? null : _password.Text,
-                _udp.Checked);
             profile.Validate();
-            _settings.Save(profile.ServerAddress, profile.Port, profile.EnableUdp);
-            _credentials.Save(profile.Username, profile.Password);
-            _status.Text = "SETTINGS SAVED  •  TUNNEL NOT YET ENABLED";
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid SOCKS5 profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+    }
+
+    private void SaveProfile()
+    {
+        if (!TryBuildProfile(out var profile) || profile is null)
+            return;
+
+        try
+        {
+            PersistProfile(profile);
+            _status.Text = "SETTINGS SAVED  •  DISCONNECTED";
             _status.ForeColor = Color.FromArgb(80, 210, 160);
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
         {
             MessageBox.Show(this, ex.Message, "Could not save settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void PersistProfile(Socks5Profile profile)
+    {
+        _settings.Save(profile.ServerAddress, profile.Port, profile.EnableUdp);
+        _credentials.Save(profile.Username, profile.Password);
+    }
+
+    private async Task ToggleConnectionAsync()
+    {
+        _connect.Enabled = false;
+        try
+        {
+            if (_connectionEstablished)
+            {
+                _status.Text = "DISCONNECTING  •  RESTORING NETWORK";
+                _status.ForeColor = Color.FromArgb(255, 194, 92);
+                await _host.StopAsync();
+                _connectionEstablished = false;
+                _connect.Text = "CONNECT";
+                _status.Text = "DISCONNECTED  •  ORIGINAL ROUTES RESTORED";
+                _status.ForeColor = Color.FromArgb(142, 177, 207);
+                return;
+            }
+
+            if (!TryBuildProfile(out var profile) || profile is null)
+                return;
+
+            PersistProfile(profile);
+            _status.Text = "CONNECTING  •  APPLYING NETWORK PROTECTION";
+            _status.ForeColor = Color.FromArgb(255, 194, 92);
+            await _host.StartAsync(profile);
+
+            _connectionEstablished = true;
+            _connect.Text = "DISCONNECT";
+            _status.Text = "CONNECTED  •  HTTPS VERIFIED  •  " + _host.VerifiedEgressAddress;
+            _status.ForeColor = Color.FromArgb(80, 210, 160);
+        }
+        catch (Exception ex)
+        {
+            var cleanupSucceeded = false;
+            try
+            {
+                await _host.StopAsync();
+                cleanupSucceeded = true;
+            }
+            catch (Exception cleanupError)
+            {
+                ex = new AggregateException(ex, cleanupError);
+            }
+
+            _connectionEstablished = false;
+            _connect.Text = "CONNECT";
+            _status.Text = cleanupSucceeded
+                ? "CONNECTION FAILED  •  NETWORK RESTORED"
+                : "CLEANUP FAILED  •  NETWORK PROTECTION RETAINED";
+            _status.ForeColor = Color.FromArgb(255, 110, 110);
+            MessageBox.Show(this, ex.Message, "H.B Proxy connection", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _connect.Enabled = true;
+        }
+    }
+
+    private void CheckTunnelHealth()
+    {
+        if (!_connectionEstablished || _host.IsRunning)
+            return;
+
+        _connectionEstablished = false;
+        _connect.Text = "CONNECT";
+        _status.Text = "TUNNEL STOPPED  •  CHECK NETWORK CLEANUP";
+        _status.ForeColor = Color.FromArgb(255, 110, 110);
     }
 }
