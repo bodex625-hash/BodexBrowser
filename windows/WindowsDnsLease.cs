@@ -10,7 +10,7 @@ namespace HBProxy.Windows;
 /// </summary>
 public sealed class WindowsDnsLease : IAsyncDisposable
 {
-    private sealed record AdapterDns(int InterfaceIndex, string InterfaceAlias, string[] IPv4ServerAddresses, bool IPv4Static, string[] IPv6ServerAddresses, bool IPv6Static);
+    private sealed record AdapterDns(int InterfaceIndex, string InterfaceAlias, string[] IPv4ServerAddresses, bool IPv4Static, string[] IPv6ServerAddresses, bool IPv6Static, string InterfaceGuid = "");
     private static readonly string LeasePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Bodex", "HBProxy", "dns-lease.json");
@@ -41,7 +41,8 @@ public sealed class WindowsDnsLease : IAsyncDisposable
                     ipv4.ServerAddresses.Select(a => a.ToString()).ToArray(),
                     ipv4.IsStatic,
                     ipv6.ServerAddresses.Select(a => a.ToString()).ToArray(),
-                    ipv6.IsStatic);
+                    ipv6.IsStatic,
+                    ipv4.InterfaceGuid);
             })
             .ToArray();
 
@@ -116,15 +117,16 @@ public sealed class WindowsDnsLease : IAsyncDisposable
                 item.InterfaceAlias.StartsWith("Loopback", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            var index = item.InterfaceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var alias = Quote(item.InterfaceAlias);
+            var identity = string.IsNullOrWhiteSpace(item.InterfaceGuid)
+                ? "$a=Get-NetAdapter -Name " + Quote(item.InterfaceAlias) + " -ErrorAction SilentlyContinue | Select-Object -First 1; "
+                : "$a=Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { ([string]$_.InterfaceGuid).Trim('{}') -eq " + Quote(item.InterfaceGuid.Trim('{', '}')) + " } | Select-Object -First 1; ";
             commands.Add(
-                "$a=Get-NetAdapter -InterfaceIndex " + index + " -ErrorAction SilentlyContinue; " +
-                "if($null -ne $a -and $a.Name -eq " + alias + " -and $a.Status -eq 'Up') { " +
-                "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ServerAddresses @('127.0.0.1','::1') -ErrorAction Stop; " +
+                identity +
+                "if($null -ne $a -and $a.Status -eq 'Up') { " +
+                "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ServerAddresses @('127.0.0.1','::1') -ErrorAction Stop; " +
                 "$changed++ }");
         }
-        commands.Add("if($changed -lt 1) { throw 'No active network adapter could be assigned to the local DNS forwarder.' };");
+        commands.Add("if($changed -lt 1) { throw 'No captured network adapter is currently active; DNS was not changed.' };");
         commands.Add("Write-Output 'OK'");
         return string.Join(" ", commands);
     }
@@ -134,24 +136,23 @@ public sealed class WindowsDnsLease : IAsyncDisposable
         var commands = new List<string> { "$ErrorActionPreference='Stop';" };
         foreach (var item in snapshot)
         {
-            var index = item.InterfaceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var alias = Quote(item.InterfaceAlias);
+            var identity = string.IsNullOrWhiteSpace(item.InterfaceGuid)
+                ? "$a=Get-NetAdapter -Name " + Quote(item.InterfaceAlias) + " -ErrorAction SilentlyContinue | Select-Object -First 1; "
+                : "$a=Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { ([string]$_.InterfaceGuid).Trim('{}') -eq " + Quote(item.InterfaceGuid.Trim('{', '}')) + " } | Select-Object -First 1; ";
             commands.Add(
-                "$a=Get-NetAdapter -InterfaceIndex " + index + " -ErrorAction SilentlyContinue; " +
-                "if($null -ne $a) { " +
-                "if($a.Name -ne " + alias + ") { throw 'Adapter identity changed for interface index " + index + ".' }; " +
+                identity +
+                "if($null -eq $a) { throw 'Captured adapter is not currently present: " + Quote(item.InterfaceAlias) + ".' }; " +
                 (!item.IPv4Static || !item.IPv6Static
-                    ? "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ResetServerAddresses -ErrorAction Stop; "
+                    ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -ResetServerAddresses -ErrorAction Stop; "
                     : "") +
                 (item.IPv4Static
-                    ? "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ServerAddresses @(" +
+                    ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -AddressFamily IPv4 -ServerAddresses @(" +
                       string.Join(",", item.IPv4ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; "
                     : "") +
                 (item.IPv6Static
-                    ? "Set-DnsClientServerAddress -InterfaceIndex " + index + " -ServerAddresses @(" +
+                    ? "Set-DnsClientServerAddress -InterfaceIndex $a.InterfaceIndex -AddressFamily IPv6 -ServerAddresses @(" +
                       string.Join(",", item.IPv6ServerAddresses.Select(Quote)) + ") -ErrorAction Stop; "
-                    : "") +
-                "}");
+                    : ""));
         }
         commands.Add("Write-Output 'OK'");
         return RunPowerShellAsync(string.Join(" ", commands), cancellationToken);
