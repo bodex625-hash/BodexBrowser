@@ -231,9 +231,12 @@ public sealed class MainForm : Form
     private bool TryBuildProfile(out Socks5Profile? profile)
     {
         profile = null;
-        if (!IPAddress.TryParse(_server.Text.Trim(), out _))
+        if (!IPAddress.TryParse(_server.Text.Trim(), out var serverAddress) ||
+            serverAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
         {
-            MessageBox.Show(this, "Enter the SOCKS5 server as a valid IP address.", "Invalid server", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this,
+                "Enter the SOCKS5 server as an IPv4 address. The bundled Windows ProxyBridge engine requires an IPv4 proxy endpoint.",
+                "Invalid server", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _server.Focus();
             return false;
         }
