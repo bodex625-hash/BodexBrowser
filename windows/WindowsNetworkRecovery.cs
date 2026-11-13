@@ -3,8 +3,8 @@ using System.Diagnostics;
 namespace HBProxy.Windows;
 
 /// <summary>
-/// Startup recovery for a prior forced app termination. It stops only the
-/// bundled HEV executable from this installation, removes HBProxy-owned
+/// Startup recovery for a prior forced app termination. It stops leftover
+/// HEV engine processes, removes HBProxy-owned
 /// default routes, deletes the private runtime YAML, then removes stale
 /// kill-switch groups. If any step is uncertain, recovery fails closed.
 /// </summary>
@@ -26,6 +26,7 @@ public static class WindowsNetworkRecovery
             "$adapter=Get-NetAdapter -Name 'HBProxy' -ErrorAction SilentlyContinue; " +
             "if($null -ne $adapter) { " +
             "$idx=[int]$adapter.ifIndex; " +
+            "Set-DnsClientServerAddress -InterfaceIndex $idx -ResetServerAddresses -ErrorAction Stop; " +
             "Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceIndex -eq $idx -and $_.NextHop -eq '0.0.0.0' -and $_.RouteMetric -eq 1 } | Remove-NetRoute -Confirm:$false -ErrorAction Stop; " +
             "Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '::/0' -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceIndex -eq $idx -and $_.NextHop -eq '::' -and $_.RouteMetric -eq 1 } | Remove-NetRoute -Confirm:$false -ErrorAction Stop " +
             "}; " +
