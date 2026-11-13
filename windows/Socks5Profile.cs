@@ -18,6 +18,9 @@ public sealed record Socks5Profile(
         if (Port is < 1 or > 65535)
             throw new ArgumentOutOfRangeException(nameof(Port), "SOCKS5 port must be between 1 and 65535.");
 
+        if (!EnableUdp)
+            throw new ArgumentException("UDP support must remain enabled so Windows DNS queries can pass through the SOCKS5 tunnel.", nameof(EnableUdp));
+
         if ((Username is null) != (Password is null))
             throw new ArgumentException("Enter both SOCKS5 username and password, or leave both empty.");
 
