@@ -15,7 +15,7 @@ public sealed class MainForm : Form
     private readonly Button _connect = new();
     private readonly CredentialStore _credentials = new();
     private readonly ProfileSettingsStore _settings = new();
-    private readonly HevProcessHost _host = new();
+    private readonly ProxyBridgeEngineHost _host = new();
     private readonly System.Windows.Forms.Timer _healthTimer = new() { Interval = 1000 };
     private bool _connectionEstablished;
     private bool _allowClose;
@@ -95,7 +95,7 @@ public sealed class MainForm : Form
 
         root.Controls.Add(new Label
         {
-            Text = "SECURE SOCKS5 TUNNEL  •  WINDOWS x64",
+            Text = "SYSTEM-WIDE SOCKS5 ROUTING  •  WINDOWS x64",
             Dock = DockStyle.Fill,
             Font = new Font("Segoe UI", 9F, FontStyle.Bold),
             ForeColor = Color.FromArgb(142, 177, 207),
@@ -136,7 +136,7 @@ public sealed class MainForm : Form
         AddField(panel, "Password", _password, 4, "Optional");
         _password.UseSystemPasswordChar = true;
 
-        _udp.Text = "Enable UDP (recommended; disabling it may affect DNS)";
+        _udp.Text = "Enable UDP only when the SOCKS5 server supports UDP ASSOCIATE";
         _udp.Checked = true;
         _udp.Enabled = true;
         _udp.Dock = DockStyle.Fill;
@@ -295,7 +295,7 @@ public sealed class MainForm : Form
                 _connectionEstablished = false;
                 _udp.Enabled = true;
                 _connect.Text = "CONNECT";
-                _status.Text = "DISCONNECTED  •  ORIGINAL ROUTES RESTORED";
+                _status.Text = "DISCONNECTED  •  PROXY ENGINE STOPPED";
                 _status.ForeColor = Color.FromArgb(142, 177, 207);
                 return;
             }
@@ -304,14 +304,14 @@ public sealed class MainForm : Form
                 return;
 
             PersistProfile(profile);
-            _status.Text = "CONNECTING  •  APPLYING NETWORK PROTECTION";
+            _status.Text = "CONNECTING  •  TESTING SOCKS5 AND STARTING SYSTEM ROUTING";
             _status.ForeColor = Color.FromArgb(255, 194, 92);
             await _host.StartAsync(profile);
 
             _connectionEstablished = true;
             _udp.Enabled = false;
             _connect.Text = "DISCONNECT";
-            _status.Text = "CONNECTED  •  HTTPS VERIFIED  •  " + _host.VerifiedEgressAddress;
+            _udp.Checked = _host.UdpEnabled;\n            _status.Text = "CONNECTED  •  ALL WINDOWS APPS ROUTED  •  " + (_host.UdpEnabled ? "TCP + UDP" : "TCP ONLY  •  UDP NOT SUPPORTED");
             _status.ForeColor = Color.FromArgb(80, 210, 160);
         }
         catch (Exception ex)
@@ -424,7 +424,7 @@ public sealed class MainForm : Form
         _connectionEstablished = false;
         _udp.Enabled = true;
         _connect.Text = "CONNECT";
-        _status.Text = "TUNNEL STOPPED  •  CHECK NETWORK CLEANUP";
+        _status.Text = "PROXY ENGINE STOPPED  •  CHECK CONNECTION";
         _status.ForeColor = Color.FromArgb(255, 110, 110);
     }
 }
