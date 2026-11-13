@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -14,9 +15,10 @@ import android.widget.Toast
 import java.util.concurrent.Executors
 
 class ActivationActivity : Activity() {
-    private val gold = Color.rgb(212, 175, 55)
-    private val black = Color.rgb(9, 10, 12)
-    private val panel = Color.rgb(23, 25, 29)
+    private val accent = Color.rgb(32, 200, 245)
+    private val black = Color.rgb(9, 16, 29)
+    private val panel = Color.rgb(20, 34, 56)
+    private val muted = Color.rgb(159, 177, 200)
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
@@ -39,19 +41,19 @@ class ActivationActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(28, 24, 28, 24)
+            setPadding(24, 24, 24, 24)
             setBackgroundColor(black)
         }
         val logo = TextView(this).apply {
             text = "HB"
             textSize = 42f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(gold)
+            setTextColor(accent)
             gravity = Gravity.CENTER
         }
         val title = TextView(this).apply {
             text = "HB Browser"
-            textSize = 25f
+            textSize = 26f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -59,51 +61,68 @@ class ActivationActivity : Activity() {
         val subtitle = TextView(this).apply {
             text = "كود واحد يفعّل HB Browser و H.B Proxy"
             textSize = 15f
-            setTextColor(Color.LTGRAY)
+            setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(0, 10, 0, 22)
+            setPadding(0, 10, 0, 26)
         }
         codeInput = EditText(this).apply {
-            hint = "HB-XXXX-XXXX-XXXX"
-            textSize = 17f
+            hint = "أدخل كود الاشتراك"
+            textSize = 18f
             setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            imeOptions = EditorInfo.IME_ACTION_DONE
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
+            setHintTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(16, 12, 16, 12)
-            background = rounded(panel, gold)
+            setPadding(18, 14, 18, 14)
+            background = rounded(panel, accent, 2)
         }
         activateButton = Button(this).apply {
             text = "تفعيل الاشتراك"
+            textSize = 16f
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(black)
-            setBackgroundColor(gold)
+            background = rounded(accent, accent, 0)
+            backgroundTintList = null
+            stateListAnimator = null
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(18, 12, 18, 12)
             setOnClickListener { activate() }
         }
         status = TextView(this).apply {
             textSize = 13f
-            setTextColor(Color.LTGRAY)
+            setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(0, 18, 0, 0)
+            setPadding(8, 20, 8, 0)
         }
-        root.addView(logo, LinearLayout.LayoutParams(-1, 70))
-        root.addView(title)
-        root.addView(subtitle)
-        root.addView(codeInput, LinearLayout.LayoutParams(-1, 54))
-        root.addView(activateButton, LinearLayout.LayoutParams(-1, 52).apply { topMargin = 14 })
-        root.addView(status)
+
+        root.addView(logo, LinearLayout.LayoutParams(-1, 68))
+        root.addView(title, LinearLayout.LayoutParams(-1, -2))
+        root.addView(subtitle, LinearLayout.LayoutParams(-1, -2))
+        root.addView(codeInput, LinearLayout.LayoutParams(-1, 62))
+        root.addView(activateButton, LinearLayout.LayoutParams(-1, 56).apply {
+            topMargin = 16
+        })
+        root.addView(status, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = 2
+        })
         setContentView(root)
     }
 
-    private fun rounded(color: Int, stroke: Int): GradientDrawable =
+    private fun rounded(color: Int, stroke: Int, strokeWidth: Int): GradientDrawable =
         GradientDrawable().apply {
             setColor(color)
-            cornerRadius = 18f
-            setStroke(2, stroke)
+            cornerRadius = 16f
+            if (strokeWidth > 0) setStroke(strokeWidth, stroke)
         }
 
     private fun setControls(enabled: Boolean) {
         codeInput.isEnabled = enabled
         activateButton.isEnabled = enabled
+        activateButton.alpha = if (enabled) 1f else 0.55f
     }
 
     private fun handleState(state: ActivationManager.State) {
