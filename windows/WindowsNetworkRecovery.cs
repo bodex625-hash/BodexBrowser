@@ -12,19 +12,16 @@ public static class WindowsNetworkRecovery
 {
     public static async Task RecoverAbandonedAsync(CancellationToken cancellationToken = default)
     {
-        var expectedEngine = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "hev-socks5-tunnel.exe"));
         var runtimeDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Bodex", "HBProxy", "runtime");
 
         var script = "$ErrorActionPreference='Stop'; " +
-            "$expected=" + Quote(expectedEngine) + "; " +
             "$runtime=" + Quote(runtimeDirectory) + "; " +
-            "$processes=@(Get-CimInstance Win32_Process -Filter \"Name='hev-socks5-tunnel.exe'\" | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $expected) }); " +
+            "$processes=@(Get-CimInstance Win32_Process -Filter \"Name='hev-socks5-tunnel.exe'\"); " +
             "foreach($p in $processes) { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop }; " +
             "$deadline=(Get-Date).AddSeconds(10); " +
-            "do { $left=@(Get-CimInstance Win32_Process -Filter \"Name='hev-socks5-tunnel.exe'\" | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $expected) }); if($left.Count -eq 0) { break }; Start-Sleep -Milliseconds 200 } while((Get-Date) -lt $deadline); " +
+            "do { $left=@(Get-CimInstance Win32_Process -Filter \"Name='hev-socks5-tunnel.exe'\"); if($left.Count -eq 0) { break }; Start-Sleep -Milliseconds 200 } while((Get-Date) -lt $deadline); " +
             "if($left.Count -gt 0) { throw 'The previous HEV process is still running; network recovery was stopped.' }; " +
             "$adapter=Get-NetAdapter -Name 'HBProxy' -ErrorAction SilentlyContinue; " +
             "if($null -ne $adapter) { " +
