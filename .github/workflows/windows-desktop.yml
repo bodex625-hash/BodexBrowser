@@ -1,4 +1,5 @@
 name: Windows desktop build
+# Re-run the Windows x64 verification for the SOCKS5 UDP payload probe.
 
 on:
   push:
