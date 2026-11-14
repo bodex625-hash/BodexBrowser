@@ -218,9 +218,9 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("$udpName=").Append(Quote(udpRuleName)).Append("; ");
         script.Append("$udpPorts=").Append(PsArray(udpOtherPorts)).Append("; ");
         script.Append("foreach($iface in $ifaces) { ");
-        script.Append("if(@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $tcpName -ErrorAction SilentlyContinue).Count -eq 0) { ");
+        script.Append("if(@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $tcpName -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -contains $iface }).Count -eq 0) { ");
         script.Append("New-NetFirewallRule -PolicyStore PersistentStore -DisplayName $tcpName -Group $group -Direction Outbound -Action Block -Enabled True -Profile Any -InterfaceAlias $iface -RemoteAddress $relay -Protocol TCP -ErrorAction Stop | Out-Null }; ");
-        script.Append("if(@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $udpName -ErrorAction SilentlyContinue).Count -eq 0) { ");
+        script.Append("if(@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $udpName -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -contains $iface }).Count -eq 0) { ");
         script.Append("New-NetFirewallRule -PolicyStore PersistentStore -DisplayName $udpName -Group $group -Direction Outbound -Action Block -Enabled True -Profile Any -InterfaceAlias $iface -RemoteAddress $relay -Protocol UDP -RemotePort $udpPorts -ErrorAction Stop | Out-Null }; ");
         script.Append("}; ");
         AppendAddressUpdate(script, "Block public IPv4 outside tunnel", ComplementCidr(32, v4Excluded), _aliases.Length);
