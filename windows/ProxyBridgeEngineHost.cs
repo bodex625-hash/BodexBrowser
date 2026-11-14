@@ -107,7 +107,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         {
             try
             {
-                var match = Regex.Match(message ?? "", @"UDP relay at (?<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?<port>\\d+)", RegexOptions.CultureInvariant);
+                var match = Regex.Match(message ?? "", @"UDP relay at (?<ip>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)", RegexOptions.CultureInvariant);
                 if (!match.Success) return;
                 var relayIp = IPAddress.Parse(match.Groups["ip"].Value);
                 var relayPort = int.Parse(match.Groups["port"].Value, System.Globalization.CultureInfo.InvariantCulture);
