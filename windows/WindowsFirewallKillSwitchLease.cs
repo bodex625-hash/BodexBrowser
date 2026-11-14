@@ -16,9 +16,16 @@ namespace HBProxy.Windows;
 public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
 {
     private readonly string _group;
+    private readonly IPAddress _upstreamServer;
+    private readonly string[] _aliases;
     private bool _released;
 
-    private WindowsFirewallKillSwitchLease(string group) => _group = group;
+    private WindowsFirewallKillSwitchLease(string group, IPAddress upstreamServer, string[] aliases)
+    {
+        _group = group;
+        _upstreamServer = upstreamServer;
+        _aliases = aliases;
+    }
 
     public static async Task<WindowsFirewallKillSwitchLease> AcquireAsync(
         IPAddress upstreamServer,
@@ -79,9 +86,11 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("$ifaces=").Append(PsArray(aliases)).Append("; ");
         script.Append("$expected=0; ");
         script.Append("try { foreach($iface in $ifaces) { ");
-        script.Append("$expected += 6; ");
-        AppendRule(script, "Block public IPv4 outside tunnel", v4Blocked, "Any", null);
-        AppendRule(script, "Block public IPv6 outside tunnel", v6Blocked, "Any", null);
+        script.Append("$expected += 8; ");
+        AppendRule(script, "Block public IPv4 TCP outside tunnel", v4Blocked, "TCP", null);
+        AppendRule(script, "Block public IPv4 UDP outside tunnel", v4Blocked, "UDP", null);
+        AppendRule(script, "Block public IPv6 TCP outside tunnel", v6Blocked, "TCP", null);
+        AppendRule(script, "Block public IPv6 UDP outside tunnel", v6Blocked, "UDP", null);
         AppendRule(script, "Block direct IPv4 DNS UDP", dnsV4Blocked, "UDP", 53);
         AppendRule(script, "Block direct IPv4 DNS TCP", dnsV4Blocked, "TCP", 53);
         AppendRule(script, "Block direct IPv6 DNS UDP", dnsV6Blocked, "UDP", 53);
@@ -97,7 +106,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         try
         {
             await RunPowerShellAsync(script.ToString(), cancellationToken);
-            return new WindowsFirewallKillSwitchLease(group);
+            return new WindowsFirewallKillSwitchLease(group, upstreamServer, aliases);
         }
         catch (Exception setupError)
         {
@@ -147,6 +156,36 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("}; ");
     }
 
+    // Called from the native UDP-ASSOCIATE callback before the relay starts forwarding.
+    // Only UDP is exempted for the exact relay host; TCP remains restricted to SOCKS.
+    public async Task AddUdpRelayExemptionAsync(IPAddress relayAddress, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(relayAddress);
+        if (_released) throw new InvalidOperationException("The kill-switch lease has already been released.");
+        if (relayAddress.Equals(_upstreamServer)) return;
+        if (relayAddress.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
+            throw new InvalidOperationException("The SOCKS5 UDP relay address family is unsupported.");
+        var v4Excluded = new List<string> { "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4" };
+        var v6Excluded = new List<string> { "::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8" };
+        if (_upstreamServer.AddressFamily == AddressFamily.InterNetwork) v4Excluded.Add(_upstreamServer + "/32"); else v6Excluded.Add(_upstreamServer + "/128");
+        if (relayAddress.AddressFamily == AddressFamily.InterNetwork) v4Excluded.Add(relayAddress + "/32"); else v6Excluded.Add(relayAddress + "/128");
+        var script = new System.Text.StringBuilder();
+        script.Append("$ErrorActionPreference='Stop'; $group=").Append(Quote(_group)).Append("; ");
+        AppendAddressUpdate(script, "Block public IPv4 UDP outside tunnel", ComplementCidr(32, v4Excluded), _aliases.Length);
+        AppendAddressUpdate(script, "Block public IPv6 UDP outside tunnel", ComplementCidr(128, v6Excluded), _aliases.Length);
+        script.Append("Write-Output 'OK'");
+        await RunPowerShellAsync(script.ToString(), cancellationToken);
+    }
+
+    private static void AppendAddressUpdate(System.Text.StringBuilder script, string displayName, IReadOnlyList<string> remoteAddresses, int expectedCount)
+    {
+        script.Append("$matches=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction Stop | Where-Object { $_.DisplayName -eq ")
+            .Append(Quote("Bodex HBProxy " + displayName)).Append(" }); ");
+        script.Append("if($matches.Count -ne ").Append(expectedCount.ToString(CultureInfo.InvariantCulture))
+            .Append(") { throw ").Append(Quote("Could not locate every firewall rule: " + displayName)).Append(" }; ");
+        script.Append("$matches | Get-NetFirewallAddressFilter | Set-NetFirewallAddressFilter -RemoteAddress ")
+            .Append(PsArray(remoteAddresses)).Append(" -ErrorAction Stop; ");
+    }
     public async Task ReleaseAsync(CancellationToken cancellationToken = default)
     {
         if (_released)
