@@ -323,8 +323,8 @@ public sealed class MainForm : Form
                     IPAddress.Parse(profile.ServerAddress)).GetAwaiter().GetResult();
             }, (relayAddress, relayPort) =>
             {
-                // Native UDP relay startup blocks here until the exact relay host is
-                // excluded from the UDP-only kill-switch rule. TCP remains fail-closed.
+                // Native UDP relay startup waits here while the firewall permits only
+                // its negotiated UDP endpoint; TCP and the relay's other UDP ports stay blocked.
                 _killSwitch!.AddUdpRelayExemptionAsync(relayAddress, relayPort).GetAwaiter().GetResult();
             });
             _status.Text = "CONNECTING  •  CONFIGURING PRIVATE DNS OVER SOCKS5";
