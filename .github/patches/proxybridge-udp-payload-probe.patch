@@ -1,0 +1,83 @@
+diff --git a/Windows/src/pb_internal.h b/Windows/src/pb_internal.h
+--- a/Windows/src/pb_internal.h
++++ b/Windows/src/pb_internal.h
+@@ -346,2 +346,3 @@
+ int socks5_udp_associate_with_config(SOCKET s, struct sockaddr_in *relay_addr, const PROXY_CONFIG *cfg);
++BOOL socks5_udp_payload_probe(SOCKET udp_sock, const struct sockaddr_in *relay_addr);
+ BOOL establish_udp_associate_for_config(PROXY_CONFIG *cfg);
+diff --git a/Windows/src/pb_socks5.c b/Windows/src/pb_socks5.c
+--- a/Windows/src/pb_socks5.c
++++ b/Windows/src/pb_socks5.c
+@@ -301,4 +301,51 @@
+         return 0;
+ }
+ 
++// Verify the UDP data plane, not just the TCP UDP-ASSOCIATE handshake.
++// A DNS query is encapsulated in the SOCKS5 UDP header and sent through the relay.
++// A matching DNS response proves bidirectional payload flow.
++BOOL socks5_udp_payload_probe(SOCKET udp_sock, const struct sockaddr_in *relay_addr)
++{
++    static const unsigned char dns_query[] = {
++        0xB0, 0xD3, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++        0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
++        0x00, 0x01, 0x00, 0x01
++    };
++    static const unsigned char targets[2][4] = { {1,1,1,1}, {8,8,8,8} };
++    unsigned char request[10 + sizeof(dns_query)];
++    unsigned char response[1500];
++    DWORD timeout = 2500;
++    setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
++    setsockopt(udp_sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
++
++    memset(request, 0, sizeof(request));
++    request[3] = 0x01;
++    request[8] = 0x00; request[9] = 0x35;
++    memcpy(request + 10, dns_query, sizeof(dns_query));
++
++    for (int attempt = 0; attempt < 2; attempt++)
++    {
++        memcpy(request + 4, targets[attempt], 4);
++        int sent = sendto(udp_sock, (const char*)request, (int)sizeof(request), 0,
++                          (const struct sockaddr*)relay_addr, sizeof(*relay_addr));
++        if (sent != (int)sizeof(request))
++            continue;
++
++        struct sockaddr_in from;
++        int from_len = sizeof(from);
++        int received = recvfrom(udp_sock, (char*)response, sizeof(response), 0,
++                                (struct sockaddr*)&from, &from_len);
++        if (received < 22 || from.sin_family != AF_INET ||
++            from.sin_addr.s_addr != relay_addr->sin_addr.s_addr ||
++            from.sin_port != relay_addr->sin_port)
++            continue;
++
++        if (response[0] == 0 && response[1] == 0 && response[2] == 0 &&
++            response[3] == 0x01 && response[10] == dns_query[0] &&
++            response[11] == dns_query[1] && (response[12] & 0x80) != 0)
++            return TRUE;
++    }
++    return FALSE;
++}
++
+ int socks5_udp_associate_with_config(SOCKET s, struct sockaddr_in *relay_addr, const PROXY_CONFIG *cfg)
+diff --git a/Windows/src/pb_proxy.c b/Windows/src/pb_proxy.c
+--- a/Windows/src/pb_proxy.c
++++ b/Windows/src/pb_proxy.c
+@@ -342,8 +342,18 @@
+                 int urc = socks5_udp_associate_with_config(us, &relay, cfg);
+                 if (urc == 0)
+                 {
++                    if (relay.sin_addr.s_addr == INADDR_ANY)
++                        relay.sin_addr = paddr.sin_addr;
+                     TLOG("  UDP ASSOCIATE granted; relay = %s:%u", inet_ntoa(relay.sin_addr), ntohs(relay.sin_port));
+-                    TLOG("  UDP is supported by this proxy");
++                    SOCKET udp_probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
++                    if (udp_probe != INVALID_SOCKET && socks5_udp_payload_probe(udp_probe, &relay))
++                    {
++                        TLOG("  UDP payload probe passed");
++                        TLOG("  UDP is supported by this proxy");
++                    }
++                    else
++                        TLOG("  UDP ASSOCIATE granted, but UDP payload probe failed");
++                    if (udp_probe != INVALID_SOCKET) closesocket(udp_probe);
+                 }
