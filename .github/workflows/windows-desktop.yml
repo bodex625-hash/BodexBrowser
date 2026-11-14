@@ -6,6 +6,7 @@ on:
     paths:
       - "windows/**"
       - ".github/workflows/windows-desktop.yml"
+      - ".github/patches/**"
   workflow_dispatch:
 
 permissions:
@@ -29,6 +30,12 @@ jobs:
           ref: 8cb9dceeed582fcd7c2baed8d20eec34934732fc
           path: external/ProxyBridge
           persist-credentials: false
+
+      - name: Apply SOCKS5 UDP payload verification patch
+        shell: pwsh
+        run: |
+          git -C external/ProxyBridge apply --check ../../.github/patches/proxybridge-udp-payload-probe.patch
+          git -C external/ProxyBridge apply ../../.github/patches/proxybridge-udp-payload-probe.patch
 
       - name: Install .NET 8
         uses: actions/setup-dotnet@v4
