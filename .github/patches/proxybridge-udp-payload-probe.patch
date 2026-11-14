@@ -63,7 +63,7 @@ diff --git a/Windows/src/pb_socks5.c b/Windows/src/pb_socks5.c
 diff --git a/Windows/src/pb_proxy.c b/Windows/src/pb_proxy.c
 --- a/Windows/src/pb_proxy.c
 +++ b/Windows/src/pb_proxy.c
-@@ -342,8 +342,18 @@
+@@ -341,6 +341,16 @@
                  int urc = socks5_udp_associate_with_config(us, &relay, cfg);
                  if (urc == 0)
                  {
