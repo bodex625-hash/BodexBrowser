@@ -190,7 +190,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
             v6Excluded.Add(_upstreamServer + "/128");
             dnsV6Exemptions.Add(_upstreamServer + "/128");
         }
-        foreach (var address in relayAddresses.Append(relayAddress))
+        foreach (var address in relayAddresses)
         {
             if (address.AddressFamily == AddressFamily.InterNetwork)
             {
