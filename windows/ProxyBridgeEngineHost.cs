@@ -102,7 +102,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
 
         var log = new StringBuilder();
         bool startAttempted = false;
-        bool udpRelayFirewallReady = false;
+        int udpRelayFirewallReady = 0;
         NativeLogCallback nativeLog = message =>
         {
             try
@@ -113,11 +113,11 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                 var relayIp = IPAddress.Parse(match.Groups["ip"].Value);
                 var relayPort = int.Parse(match.Groups["port"].Value, System.Globalization.CultureInfo.InvariantCulture);
                 onUdpRelayDiscovered?.Invoke(relayIp, relayPort);
-                udpRelayFirewallReady = onUdpRelayDiscovered != null;
+                if (onUdpRelayDiscovered != null) Interlocked.Exchange(ref udpRelayFirewallReady, 1);
             }
             catch (Exception ex)
             {
-                udpRelayFirewallReady = false;
+                Interlocked.Exchange(ref udpRelayFirewallReady, 0);
                 lock (log) log.AppendLine("UDP relay firewall exemption failed: " + ex.Message);
             }
         };
@@ -203,7 +203,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                     "ProxyBridge could not start WinDivert. Run H.B Proxy as Administrator and check that the Windows driver is present.");
 
             _running = true;
-            _udpEnabled = _udpEnabled && udpRelayFirewallReady;
+            _udpEnabled = _udpEnabled && Volatile.Read(ref udpRelayFirewallReady) == 1;
             if (profile.EnableUdp && !_udpEnabled)
                 lock (log) _lastDiagnostics += Environment.NewLine + "UDP data path is fail-closed: relay endpoint was not confirmed in the firewall.";
         }
