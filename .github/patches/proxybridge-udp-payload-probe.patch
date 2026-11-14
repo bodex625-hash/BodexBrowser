@@ -8,7 +8,7 @@ diff --git a/Windows/src/pb_internal.h b/Windows/src/pb_internal.h
 diff --git a/Windows/src/pb_socks5.c b/Windows/src/pb_socks5.c
 --- a/Windows/src/pb_socks5.c
 +++ b/Windows/src/pb_socks5.c
-@@ -304,0 +304,47 @@
+@@ -304,0 +304,46 @@
 +// Verify the UDP data plane, not just the TCP UDP-ASSOCIATE handshake.
 +// A DNS query is encapsulated in the SOCKS5 UDP header and sent through the relay.
 +// A matching DNS response proves bidirectional payload flow.
@@ -55,7 +55,7 @@ diff --git a/Windows/src/pb_socks5.c b/Windows/src/pb_socks5.c
 +    }
 +    return FALSE;
 +}
-+diff --git a/Windows/src/pb_proxy.c b/Windows/src/pb_proxy.c
+diff --git a/Windows/src/pb_proxy.c b/Windows/src/pb_proxy.c
 --- a/Windows/src/pb_proxy.c
 +++ b/Windows/src/pb_proxy.c
 @@ -341,6 +341,16 @@
