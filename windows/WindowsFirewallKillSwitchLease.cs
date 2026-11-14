@@ -18,6 +18,8 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
     private readonly string _group;
     private readonly IPAddress _upstreamServer;
     private readonly string[] _aliases;
+    private readonly HashSet<string> _udpRelayEndpoints = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<IPAddress> _udpRelayAddresses = new();
     private bool _released;
 
     private WindowsFirewallKillSwitchLease(string group, IPAddress upstreamServer, string[] aliases)
@@ -86,11 +88,9 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("$ifaces=").Append(PsArray(aliases)).Append("; ");
         script.Append("$expected=0; ");
         script.Append("try { foreach($iface in $ifaces) { ");
-        script.Append("$expected += 8; ");
-        AppendRule(script, "Block public IPv4 TCP outside tunnel", v4Blocked, "TCP", null);
-        AppendRule(script, "Block public IPv4 UDP outside tunnel", v4Blocked, "UDP", null);
-        AppendRule(script, "Block public IPv6 TCP outside tunnel", v6Blocked, "TCP", null);
-        AppendRule(script, "Block public IPv6 UDP outside tunnel", v6Blocked, "UDP", null);
+        script.Append("$expected += 6; ");
+        AppendRule(script, "Block public IPv4 outside tunnel", v4Blocked, "Any", null);
+        AppendRule(script, "Block public IPv6 outside tunnel", v6Blocked, "Any", null);
         AppendRule(script, "Block direct IPv4 DNS UDP", dnsV4Blocked, "UDP", 53);
         AppendRule(script, "Block direct IPv4 DNS TCP", dnsV4Blocked, "TCP", 53);
         AppendRule(script, "Block direct IPv6 DNS UDP", dnsV6Blocked, "UDP", 53);
@@ -156,25 +156,86 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("}; ");
     }
 
-    // Called from the native UDP-ASSOCIATE callback before the relay starts forwarding.
-    // Only UDP is exempted for the exact relay host; TCP remains restricted to SOCKS.
-    public async Task AddUdpRelayExemptionAsync(IPAddress relayAddress, CancellationToken cancellationToken = default)
+    // The native relay thread waits for this update before it starts forwarding.
+    // The general kill switch remains protocol-agnostic. Only the negotiated UDP
+    // endpoint is exempted; TCP and all other UDP ports on that relay host stay blocked.
+    public async Task AddUdpRelayExemptionAsync(IPAddress relayAddress, int relayPort, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(relayAddress);
         if (_released) throw new InvalidOperationException("The kill-switch lease has already been released.");
+        if (relayPort is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(relayPort));
         if (relayAddress.Equals(_upstreamServer)) return;
         if (relayAddress.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
             throw new InvalidOperationException("The SOCKS5 UDP relay address family is unsupported.");
-        var v4Excluded = new List<string> { "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4" };
+
+        var endpointKey = relayAddress + ":" + relayPort.ToString(CultureInfo.InvariantCulture);
+        if (_udpRelayEndpoints.Contains(endpointKey)) return;
+        var relayAddresses = _udpRelayAddresses.Append(relayAddress).Distinct().ToArray();
+
+        var v4Excluded = new List<string>
+        {
+            "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16",
+            "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4"
+        };
         var v6Excluded = new List<string> { "::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8" };
-        if (_upstreamServer.AddressFamily == AddressFamily.InterNetwork) v4Excluded.Add(_upstreamServer + "/32"); else v6Excluded.Add(_upstreamServer + "/128");
-        if (relayAddress.AddressFamily == AddressFamily.InterNetwork) v4Excluded.Add(relayAddress + "/32"); else v6Excluded.Add(relayAddress + "/128");
+        var dnsV4Exemptions = new List<string> { "127.0.0.0/8" };
+        var dnsV6Exemptions = new List<string> { "::1/128" };
+        if (_upstreamServer.AddressFamily == AddressFamily.InterNetwork)
+        {
+            v4Excluded.Add(_upstreamServer + "/32");
+            dnsV4Exemptions.Add(_upstreamServer + "/32");
+        }
+        else
+        {
+            v6Excluded.Add(_upstreamServer + "/128");
+            dnsV6Exemptions.Add(_upstreamServer + "/128");
+        }
+        foreach (var address in relayAddresses.Append(relayAddress))
+        {
+            if (address.AddressFamily == AddressFamily.InterNetwork)
+            {
+                v4Excluded.Add(address + "/32");
+                dnsV4Exemptions.Add(address + "/32");
+            }
+            else
+            {
+                v6Excluded.Add(address + "/128");
+                dnsV6Exemptions.Add(address + "/128");
+            }
+        }
+
+        var udpOtherPorts = new List<string>();
+        if (relayPort > 1) udpOtherPorts.Add("1-" + (relayPort - 1).ToString(CultureInfo.InvariantCulture));
+        if (relayPort < 65535) udpOtherPorts.Add((relayPort + 1).ToString(CultureInfo.InvariantCulture) + "-65535");
+        var relayText = relayAddress.ToString();
+        var tcpRuleName = "Bodex HBProxy Block TCP to UDP relay " + relayText;
+        var udpRuleName = "Bodex HBProxy Block other UDP ports to relay " + relayText + ":" + relayPort.ToString(CultureInfo.InvariantCulture);
         var script = new System.Text.StringBuilder();
         script.Append("$ErrorActionPreference='Stop'; $group=").Append(Quote(_group)).Append("; ");
-        AppendAddressUpdate(script, "Block public IPv4 UDP outside tunnel", ComplementCidr(32, v4Excluded), _aliases.Length);
-        AppendAddressUpdate(script, "Block public IPv6 UDP outside tunnel", ComplementCidr(128, v6Excluded), _aliases.Length);
+        script.Append("$ifaces=").Append(PsArray(_aliases)).Append("; ");
+        script.Append("$relay=").Append(Quote(relayText)).Append("; ");
+        script.Append("$tcpName=").Append(Quote(tcpRuleName)).Append("; ");
+        script.Append("$udpName=").Append(Quote(udpRuleName)).Append("; ");
+        script.Append("$udpPorts=").Append(PsArray(udpOtherPorts)).Append("; ");
+        script.Append("foreach($iface in $ifaces) { ");
+        script.Append("if(@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $tcpName -ErrorAction SilentlyContinue).Count -eq 0) { ");
+        script.Append("New-NetFirewallRule -PolicyStore PersistentStore -DisplayName $tcpName -Group $group -Direction Outbound -Action Block -Enabled True -Profile Any -InterfaceAlias $iface -RemoteAddress $relay -Protocol TCP -ErrorAction Stop | Out-Null }; ");
+        script.Append("if(@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $udpName -ErrorAction SilentlyContinue).Count -eq 0) { ");
+        script.Append("New-NetFirewallRule -PolicyStore PersistentStore -DisplayName $udpName -Group $group -Direction Outbound -Action Block -Enabled True -Profile Any -InterfaceAlias $iface -RemoteAddress $relay -Protocol UDP -RemotePort $udpPorts -ErrorAction Stop | Out-Null }; ");
+        script.Append("}; ");
+        AppendAddressUpdate(script, "Block public IPv4 outside tunnel", ComplementCidr(32, v4Excluded), _aliases.Length);
+        AppendAddressUpdate(script, "Block public IPv6 outside tunnel", ComplementCidr(128, v6Excluded), _aliases.Length);
+        AppendAddressUpdate(script, "Block direct IPv4 DNS UDP", ComplementCidr(32, dnsV4Exemptions), _aliases.Length);
+        AppendAddressUpdate(script, "Block direct IPv4 DNS TCP", ComplementCidr(32, dnsV4Exemptions), _aliases.Length);
+        AppendAddressUpdate(script, "Block direct IPv6 DNS UDP", ComplementCidr(128, dnsV6Exemptions), _aliases.Length);
+        AppendAddressUpdate(script, "Block direct IPv6 DNS TCP", ComplementCidr(128, dnsV6Exemptions), _aliases.Length);
+        script.Append("$tcpRules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $tcpName -ErrorAction Stop); ");
+        script.Append("$udpRules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -DisplayName $udpName -ErrorAction Stop); ");
+        script.Append("if($tcpRules.Count -ne $ifaces.Count -or $udpRules.Count -ne $ifaces.Count) { throw 'UDP relay endpoint firewall rules could not be verified.' }; ");
         script.Append("Write-Output 'OK'");
         await RunPowerShellAsync(script.ToString(), cancellationToken);
+        _udpRelayEndpoints.Add(endpointKey);
+        if (!_udpRelayAddresses.Contains(relayAddress)) _udpRelayAddresses.Add(relayAddress);
     }
 
     private static void AppendAddressUpdate(System.Text.StringBuilder script, string displayName, IReadOnlyList<string> remoteAddresses, int expectedCount)
