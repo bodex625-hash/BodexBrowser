@@ -15,16 +15,12 @@ namespace HBProxy.Windows;
 public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
 {
     private readonly string _group;
-    private readonly IPAddress _upstreamServer;
     private readonly string[] _aliases;
-    private readonly HashSet<string> _udpRelayEndpoints = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<IPAddress> _udpRelayAddresses = new();
     private bool _released;
 
-    private WindowsFirewallKillSwitchLease(string group, IPAddress upstreamServer, string[] aliases)
+    private WindowsFirewallKillSwitchLease(string group, string[] aliases)
     {
         _group = group;
-        _upstreamServer = upstreamServer;
         _aliases = aliases;
     }
 
@@ -114,7 +110,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         try
         {
             await RunPowerShellAsync(script.ToString(), cancellationToken);
-            return new WindowsFirewallKillSwitchLease(group, upstreamServer, aliases);
+            return new WindowsFirewallKillSwitchLease(group, aliases);
         }
         catch (Exception setupError)
         {
