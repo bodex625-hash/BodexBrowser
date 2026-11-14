@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Net;
+using System.Text.RegularExpressions;
 
 namespace HBProxy.Windows;
 
@@ -50,6 +52,12 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         IntPtr user);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void NativeLogCallback([MarshalAs(UnmanagedType.LPUTF8Str)] string message);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetLogCallbackDelegate(NativeLogCallback? callback);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int StartDelegate();
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -62,6 +70,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
     private TestProxyConfigDelegate? _testProxy;
     private StartDelegate? _start;
     private StopDelegate? _stop;
+    private SetLogCallbackDelegate? _setLogCallback;
     private bool _running;
     private bool _udpEnabled;
     private string _lastDiagnostics = "";
@@ -71,17 +80,20 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
     public string LastDiagnostics => _lastDiagnostics;
 
     public Task StartAsync(Socks5Profile profile) =>
-        Task.Run(() => Start(profile, null));
+        Task.Run(() => Start(profile, null, null));
 
     // Runs after the SOCKS5 reachability/authentication test and rule setup,
     // but immediately before WinDivert starts intercepting packets.
     public Task StartAsync(Socks5Profile profile, Action beforeNativeStart) =>
-        Task.Run(() => Start(profile, beforeNativeStart));
+        Task.Run(() => Start(profile, beforeNativeStart, null));
+
+    public Task StartAsync(Socks5Profile profile, Action beforeNativeStart, Action<IPAddress, int> onUdpRelayDiscovered) =>
+        Task.Run(() => Start(profile, beforeNativeStart, onUdpRelayDiscovered));
 
     public Task StopAsync() =>
         Task.Run(Stop);
 
-    private void Start(Socks5Profile profile, Action? beforeNativeStart)
+    private void Start(Socks5Profile profile, Action? beforeNativeStart, Action<IPAddress, int>? onUdpRelayDiscovered)
     {
         if (_running)
             throw new InvalidOperationException("ProxyBridge is already running.");
@@ -90,6 +102,24 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
 
         var log = new StringBuilder();
         bool startAttempted = false;
+        bool udpRelayFirewallReady = false;
+        NativeLogCallback nativeLog = message =>
+        {
+            try
+            {
+                var match = Regex.Match(message ?? "", @"UDP relay at (?<ip>\\d{1,3}(?:\\.\\d{1,3}){3}):(?<port>\\d+)", RegexOptions.CultureInvariant);
+                if (!match.Success) return;
+                var relayIp = IPAddress.Parse(match.Groups["ip"].Value);
+                var relayPort = int.Parse(match.Groups["port"].Value, System.Globalization.CultureInfo.InvariantCulture);
+                onUdpRelayDiscovered?.Invoke(relayIp, relayPort);
+                udpRelayFirewallReady = onUdpRelayDiscovered != null;
+            }
+            catch (Exception ex)
+            {
+                udpRelayFirewallReady = false;
+                lock (log) log.AppendLine("UDP relay firewall exemption failed: " + ex.Message);
+            }
+        };
         ProxyTestLogCallback callback = (line, _) =>
         {
             lock (log)
@@ -158,6 +188,10 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             // completed its local DNS lookup, but before any app packets are captured.
             beforeNativeStart?.Invoke();
 
+            // The native relay thread reports its negotiated UDP endpoint synchronously.
+            // Its callback updates the UDP-only firewall exclusion before packet workers start.
+            _setLogCallback!(nativeLog);
+
             // Mark the native start as attempted before crossing the unmanaged boundary.
             // A native start routine can partially initialize worker threads and then
             // report failure (or throw through the interop boundary); the catch path
@@ -168,6 +202,9 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                     "ProxyBridge could not start WinDivert. Run H.B Proxy as Administrator and check that the Windows driver is present.");
 
             _running = true;
+            _udpEnabled = _udpEnabled && udpRelayFirewallReady;
+            if (profile.EnableUdp && !_udpEnabled)
+                lock (log) _lastDiagnostics += Environment.NewLine + "UDP data path is fail-closed: relay endpoint was not confirmed in the firewall.";
         }
         catch
         {
@@ -191,6 +228,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         finally
         {
             GC.KeepAlive(callback);
+            GC.KeepAlive(nativeLog);
         }
     }
 
@@ -217,6 +255,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         _testProxy = Load<TestProxyConfigDelegate>("ProxyBridge_TestProxyConfigEx");
         _start = Load<StartDelegate>("ProxyBridge_Start");
         _stop = Load<StopDelegate>("ProxyBridge_Stop");
+        _setLogCallback = Load<SetLogCallbackDelegate>("ProxyBridge_SetLogCallback");
     }
 
     private T Load<T>(string export) where T : Delegate
@@ -249,6 +288,8 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         _addRule = null;
         _testProxy = null;
         _start = null;
+        try { _setLogCallback?.Invoke(null); } catch { }
+        _setLogCallback = null;
         _stop = null;
 
         if (_library != IntPtr.Zero)
