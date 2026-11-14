@@ -106,7 +106,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
                 var cleanup = "$ErrorActionPreference='Stop'; " +
                     "$group=" + Quote(group) + "; " +
                     "$rules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue); " +
-                    "if($rules.Count -gt 0) { $rules | Remove-NetFirewallRule -ErrorAction Stop }; " +
+                    "foreach($rule in $rules) { Remove-NetFirewallRule -PolicyStore PersistentStore -Name $rule.Name -ErrorAction SilentlyContinue }; " +
                     "$left=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue); " +
                     "if($left.Count -ne 0) { throw 'Partial kill-switch rules remain after rollback.' }; " +
                     "Write-Output 'OK'";
@@ -155,7 +155,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         var script = "$ErrorActionPreference='Stop'; " +
             "$group=" + Quote(_group) + "; " +
             "$rules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue); " +
-            "if($rules.Count -gt 0) { $rules | Remove-NetFirewallRule -ErrorAction Stop }; " +
+            "foreach($rule in $rules) { Remove-NetFirewallRule -PolicyStore PersistentStore -Name $rule.Name -ErrorAction SilentlyContinue }; " +
             "$left=@(Get-NetFirewallRule -PolicyStore PersistentStore -Group $group -ErrorAction SilentlyContinue); " +
             "if($left.Count -ne 0) { throw 'The owned kill-switch rules remain after cleanup.' }; " +
             "Write-Output 'OK'";
