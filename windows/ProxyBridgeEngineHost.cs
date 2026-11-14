@@ -138,14 +138,11 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
             }
             else
             {
-                // Fail closed for UDP when the upstream cannot relay it (or the user
-                // disabled it). Never silently send unsupported UDP outside SOCKS5.
-                uint udpBlockRule = _addRule!(
-                    "*", "*", "*", "*",
-                    RuleProtocolUdp,
-                    RuleActionBlock,
-                    configId,
-                    0);
+                // Keep loopback UDP available for the local DNS forwarder. A global
+                // ProxyBridge UDP BLOCK rule also blocks Windows DNS requests to
+                // 127.0.0.1/::1 before they can reach our local listener. Public UDP
+                // remains fail-closed because the Windows firewall lease blocks all
+                // public destinations outside the SOCKS upstream endpoint.
                 uint tcpProxyRule = _addRule!(
                     "*", "*", "*", "*",
                     RuleProtocolTcp,
@@ -153,8 +150,8 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                     configId,
                     0);
 
-                if (udpBlockRule == 0 || tcpProxyRule == 0)
-                    throw new InvalidOperationException("ProxyBridge could not create the default fail-closed TCP/UDP rules.");
+                if (tcpProxyRule == 0)
+                    throw new InvalidOperationException("ProxyBridge could not create the default TCP proxy rule.");
             }
 
             // The firewall lease is installed here, after the proxy test has
