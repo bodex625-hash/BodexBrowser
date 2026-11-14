@@ -107,6 +107,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
         {
             try
             {
+                if (!_udpEnabled || !profile.EnableUdp) return;
                 var match = Regex.Match(message ?? "", @"UDP relay at (?<ip>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)", RegexOptions.CultureInvariant);
                 if (!match.Success) return;
                 var relayIp = IPAddress.Parse(match.Groups["ip"].Value);
@@ -152,7 +153,7 @@ public sealed class ProxyBridgeEngineHost : IAsyncDisposable
                     _lastDiagnostics);
 
             _udpEnabled = profile.EnableUdp &&
-                _lastDiagnostics.Contains("UDP is supported by this proxy", StringComparison.OrdinalIgnoreCase);
+                _lastDiagnostics.Contains("UDP payload probe passed", StringComparison.OrdinalIgnoreCase);
 
             if (_udpEnabled)
             {
