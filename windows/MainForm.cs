@@ -320,7 +320,8 @@ public sealed class MainForm : Form
             await _host.StartAsync(profile, () =>
             {
                 _killSwitch = WindowsFirewallKillSwitchLease.AcquireAsync(
-                    IPAddress.Parse(profile.ServerAddress)).GetAwaiter().GetResult();
+                    IPAddress.Parse(profile.ServerAddress),
+                    blockPublicUdp: !_host.UdpEnabled).GetAwaiter().GetResult();
             }, (relayAddress, relayPort) =>
             {
                 // Native UDP relay startup waits here while the firewall permits only
