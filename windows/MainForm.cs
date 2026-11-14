@@ -321,6 +321,11 @@ public sealed class MainForm : Form
             {
                 _killSwitch = WindowsFirewallKillSwitchLease.AcquireAsync(
                     IPAddress.Parse(profile.ServerAddress)).GetAwaiter().GetResult();
+            }, (relayAddress, relayPort) =>
+            {
+                // Native UDP relay startup blocks here until the exact relay host is
+                // excluded from the UDP-only kill-switch rule. TCP remains fail-closed.
+                _killSwitch!.AddUdpRelayExemptionAsync(relayAddress).GetAwaiter().GetResult();
             });
             _status.Text = "CONNECTING  •  CONFIGURING PRIVATE DNS OVER SOCKS5";
             _dnsLease = await WindowsDnsLease.AcquireAsync();
