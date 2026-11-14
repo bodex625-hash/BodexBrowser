@@ -100,10 +100,14 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         script.Append("$ifaces=").Append(PsArray(aliases)).Append("; ");
         script.Append("$expected=0; ");
         script.Append("try { foreach($iface in $ifaces) { ");
-        script.Append("$expected += ").Append(blockPublicUdp ? "6" : "4").Append("; ");
-        // Do not firewall-block general public TCP: Windows Firewall can reject
-        // app flows before WinDivert sees them, preventing ProxyBridge from redirecting
-        // those flows through SOCKS5. ProxyBridge owns TCP fail-closed routing.
+        script.Append("$expected += ").Append((4 + (blockPublicUdp ? 2 : 0) + (blockPublicTcp ? 2 : 0)).ToString(CultureInfo.InvariantCulture)).Append("; ");
+        // In ProxyBridge mode, general public TCP must remain visible to WinDivert.
+        // HEV mode instead blocks all public traffic on physical interfaces.
+        if (blockPublicTcp)
+        {
+            AppendRule(script, "Block public IPv4 outside tunnel", v4Blocked, "Any", null);
+            AppendRule(script, "Block public IPv6 outside tunnel", v6Blocked, "Any", null);
+        }
         AppendRule(script, "Block direct IPv4 DNS UDP", dnsV4Blocked, "UDP", 53);
         AppendRule(script, "Block direct IPv4 DNS TCP", dnsV4Blocked, "TCP", 53);
         AppendRule(script, "Block direct IPv6 DNS UDP", dnsV6Blocked, "UDP", 53);
