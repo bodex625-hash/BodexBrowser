@@ -22,6 +22,7 @@ public sealed class Socks5DnsForwarder : IAsyncDisposable
     private Task? _ipv4Loop;
     private Task? _ipv6Loop;
     private bool _started;
+    private Exception? _lastForwardingError;
 
     public Socks5DnsForwarder(Socks5Profile profile)
     {
@@ -62,13 +63,28 @@ public sealed class Socks5DnsForwarder : IAsyncDisposable
 
     public async Task VerifyAsync(CancellationToken cancellationToken = default)
     {
+        Volatile.Write(ref _lastForwardingError, null);
         var queryName = "hbproxy-" + Guid.NewGuid().ToString("N") + ".example.com";
         var query = BuildDnsQuery(queryName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         using var client = new UdpClient(AddressFamily.InterNetwork);
         await client.SendAsync(query, new IPEndPoint(IPAddress.Loopback, 53), timeout.Token);
-        var result = await client.ReceiveAsync(timeout.Token);
+        UdpReceiveResult result;
+        try
+        {
+            result = await client.ReceiveAsync(timeout.Token);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            var forwardingError = Volatile.Read(ref _lastForwardingError);
+            if (forwardingError is not null)
+                throw new InvalidOperationException(
+                    "The local DNS forwarder did not receive a response because its SOCKS5/DoH request failed: " + forwardingError.Message,
+                    forwardingError);
+            throw new TimeoutException(
+                "The local DNS forwarder received no response within 15 seconds. No upstream SOCKS5/DoH error was captured.", ex);
+        }
         if (!IPAddress.IsLoopback(result.RemoteEndPoint.Address) ||
             result.Buffer.Length < 12 ||
             BinaryPrimitives.ReadUInt16BigEndian(result.Buffer.AsSpan(0, 2)) !=
@@ -139,9 +155,11 @@ public sealed class Socks5DnsForwarder : IAsyncDisposable
             finally { _concurrency.Release(); }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch
+        catch (Exception ex)
         {
-            // Fail closed: never retry a failed DoH lookup against a direct resolver.
+            // Preserve the upstream failure for VerifyAsync diagnostics. Fail closed:
+            // never retry a failed DoH lookup against a direct resolver.
+            Volatile.Write(ref _lastForwardingError, ex);
         }
     }
 
