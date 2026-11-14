@@ -24,10 +24,26 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
         _aliases = aliases;
     }
 
-    public static async Task<WindowsFirewallKillSwitchLease> AcquireAsync(
+    // HEV owns a virtual TUN interface and requires the original full
+    // physical-interface kill switch: block public TCP and UDP outside SOCKS.
+    public static Task<WindowsFirewallKillSwitchLease> AcquireAsync(
+        IPAddress upstreamServer,
+        CancellationToken cancellationToken = default) =>
+        AcquireAsyncCore(upstreamServer, blockPublicUdp: true, blockPublicTcp: true, cancellationToken);
+
+    // ProxyBridge uses WinDivert to capture TCP before it is relayed through
+    // SOCKS5, so blocking public TCP in Windows Firewall would prevent capture.
+    public static Task<WindowsFirewallKillSwitchLease> AcquireAsync(
         IPAddress upstreamServer,
         bool blockPublicUdp,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        AcquireAsyncCore(upstreamServer, blockPublicUdp, blockPublicTcp: false, cancellationToken);
+
+    private static async Task<WindowsFirewallKillSwitchLease> AcquireAsyncCore(
+        IPAddress upstreamServer,
+        bool blockPublicUdp,
+        bool blockPublicTcp,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(upstreamServer);
 
