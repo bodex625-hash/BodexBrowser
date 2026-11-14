@@ -29,7 +29,7 @@ public sealed class WindowsFirewallKillSwitchLease : IAsyncDisposable
     public static Task<WindowsFirewallKillSwitchLease> AcquireAsync(
         IPAddress upstreamServer,
         CancellationToken cancellationToken = default) =>
-        AcquireAsyncCore(upstreamServer, blockPublicUdp: true, blockPublicTcp: true, cancellationToken);
+        AcquireAsyncCore(upstreamServer, blockPublicUdp: false, blockPublicTcp: true, cancellationToken);
 
     // ProxyBridge uses WinDivert to capture TCP before it is relayed through
     // SOCKS5, so blocking public TCP in Windows Firewall would prevent capture.
