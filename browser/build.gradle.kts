@@ -17,6 +17,29 @@ android {
         ndk { abiFilters += setOf("arm64-v8a") }
     }
 
+    // Optional stable signing shared by HB Browser and H.B Proxy.
+    // The keystore is injected by GitHub Actions from repository secrets; never commit it.
+    val sharedStoreFile = rootProject.file("shared-signing.jks")
+    val sharedStorePassword = providers.environmentVariable("HB_STORE_PASSWORD").orNull
+    val sharedKeyAlias = providers.environmentVariable("HB_KEY_ALIAS").orNull
+    val sharedKeyPassword = providers.environmentVariable("HB_KEY_PASSWORD").orNull
+    val hasSharedSigning = sharedStoreFile.exists() &&
+        !sharedStorePassword.isNullOrBlank() &&
+        !sharedKeyAlias.isNullOrBlank() &&
+        !sharedKeyPassword.isNullOrBlank()
+
+    if (hasSharedSigning) {
+        signingConfigs.create("shared") {
+            storeFile = sharedStoreFile
+            storePassword = sharedStorePassword
+            keyAlias = sharedKeyAlias
+            keyPassword = sharedKeyPassword
+        }
+        buildTypes.getByName("debug") {
+            signingConfig = signingConfigs.getByName("shared")
+        }
+    }
+
     buildFeatures { buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
