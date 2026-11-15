@@ -48,7 +48,27 @@ jobs:
           curl -fL --retry 3 -o app/libs/hev-socks5-tunnel.aar https://github.com/heiher/hev-socks5-tunnel/releases/download/2.19.3/hev-socks5-tunnel.aar
           echo "ab6c581e6157680cfe5687ee7bbdcf95405c006c2db3701879ec44b9e5f83836  app/libs/hev-socks5-tunnel.aar" | sha256sum -c -
 
+      - name: Prepare shared signing key
+        id: signing
+        env:
+          HB_SHARED_KEYSTORE_BASE64: ${{ secrets.HB_SHARED_KEYSTORE_BASE64 }}
+          HB_STORE_PASSWORD: ${{ secrets.HB_STORE_PASSWORD }}
+          HB_KEY_ALIAS: ${{ secrets.HB_KEY_ALIAS }}
+          HB_KEY_PASSWORD: ${{ secrets.HB_KEY_PASSWORD }}
+        run: |
+          if [ -n "$HB_SHARED_KEYSTORE_BASE64" ] && [ -n "$HB_STORE_PASSWORD" ] && [ -n "$HB_KEY_ALIAS" ] && [ -n "$HB_KEY_PASSWORD" ]; then
+            printf '%s' "$HB_SHARED_KEYSTORE_BASE64" | base64 --decode > shared-signing.jks
+            echo "status=shared-signed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=debug-signed-not-for-install" >> "$GITHUB_OUTPUT"
+            echo "::warning::Shared signing secrets are not configured. These APKs are test builds and must not replace installed apps."
+          fi
+
       - name: Build both applications
+        env:
+          HB_STORE_PASSWORD: ${{ secrets.HB_STORE_PASSWORD }}
+          HB_KEY_ALIAS: ${{ secrets.HB_KEY_ALIAS }}
+          HB_KEY_PASSWORD: ${{ secrets.HB_KEY_PASSWORD }}
         run: gradle --no-daemon :app:assembleDebug :browser:assembleDebug
 
       - name: Upload H.B Proxy APK
