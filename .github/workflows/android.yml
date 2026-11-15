@@ -3,9 +3,9 @@ name: Build H.B Proxy and HB Browser APKs
 on:
   workflow_dispatch:
   pull_request:
-    branches: [ feature/vpn-engine-integration ]
+    branches: [ feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
   push:
-    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
+    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser, feature/hb-browser-site-language-build130 ]
 
 permissions:
   contents: read
@@ -48,8 +48,52 @@ jobs:
           curl -fL --retry 3 -o app/libs/hev-socks5-tunnel.aar https://github.com/heiher/hev-socks5-tunnel/releases/download/2.19.3/hev-socks5-tunnel.aar
           echo "ab6c581e6157680cfe5687ee7bbdcf95405c006c2db3701879ec44b9e5f83836  app/libs/hev-socks5-tunnel.aar" | sha256sum -c -
 
+      - name: Prepare shared signing key
+        id: signing
+        env:
+          HB_SHARED_KEYSTORE_BASE64: ${{ secrets.HB_SHARED_KEYSTORE_BASE64 }}
+          HB_STORE_PASSWORD: ${{ secrets.HB_STORE_PASSWORD }}
+          HB_KEY_ALIAS: ${{ secrets.HB_KEY_ALIAS }}
+          HB_KEY_PASSWORD: ${{ secrets.HB_KEY_PASSWORD }}
+        run: |
+          if [ -n "$HB_SHARED_KEYSTORE_BASE64" ] && [ -n "$HB_STORE_PASSWORD" ] && [ -n "$HB_KEY_ALIAS" ] && [ -n "$HB_KEY_PASSWORD" ]; then
+            printf '%s' "$HB_SHARED_KEYSTORE_BASE64" | base64 --decode > shared-signing.jks
+            keytool -list -keystore shared-signing.jks -storepass "$HB_STORE_PASSWORD" -alias "$HB_KEY_ALIAS" >/dev/null
+            echo "status=shared-signed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=debug-signed-not-for-install" >> "$GITHUB_OUTPUT"
+            echo "::warning::Shared signing secrets are not configured. These APKs are test builds and must not replace installed apps."
+          fi
+
+      - name: Require shared signing identity
+        env:
+          SIGNING_STATUS: ${{ steps.signing.outputs.status }}
+        run: |
+          if [ "$SIGNING_STATUS" != "shared-signed" ]; then
+            echo "::error::Shared signing secrets are missing. Refusing to publish installable APKs."
+            exit 1
+          fi
+
       - name: Build both applications
+        env:
+          HB_STORE_PASSWORD: ${{ secrets.HB_STORE_PASSWORD }}
+          HB_KEY_ALIAS: ${{ secrets.HB_KEY_ALIAS }}
+          HB_KEY_PASSWORD: ${{ secrets.HB_KEY_PASSWORD }}
         run: gradle --no-daemon :app:assembleDebug :browser:assembleDebug
+
+      - name: Verify both APK signing certificates
+        env:
+          HB_STORE_PASSWORD: ${{ secrets.HB_STORE_PASSWORD }}
+          HB_KEY_ALIAS: ${{ secrets.HB_KEY_ALIAS }}
+        run: |
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/37.0.0/apksigner"
+          EXPECTED="$(keytool -exportcert -keystore shared-signing.jks -alias "$HB_KEY_ALIAS" -storepass "$HB_STORE_PASSWORD" | sha256sum | awk '{print toupper($1)}')"
+          PROXY="$( "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | awk '/Signer #1 certificate SHA-256 digest:/ {print toupper($NF)}' )"
+          BROWSER="$( "$APKSIGNER" verify --print-certs browser/build/outputs/apk/debug/browser-debug.apk | awk '/Signer #1 certificate SHA-256 digest:/ {print toupper($NF)}' )"
+          echo "Expected signing certificate: $EXPECTED"
+          echo "H.B Proxy certificate: $PROXY"
+          echo "HB Browser certificate: $BROWSER"
+          test -n "$EXPECTED" && test "$EXPECTED" = "$PROXY" && test "$EXPECTED" = "$BROWSER"
 
       - name: Upload H.B Proxy APK
         uses: actions/upload-artifact@v4

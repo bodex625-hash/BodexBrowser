@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.LocaleList
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -28,6 +29,8 @@ import android.widget.TextView
 import android.widget.Toast
 import com.cefrium.CefriumBrowser
 import com.cefrium.CefriumProfile
+import org.json.JSONObject
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class BrowserActivity : Activity() {
@@ -249,6 +252,7 @@ class BrowserActivity : Activity() {
         instance.setJavaScriptEnabled(true)
         instance.setPinchToZoomEnabled(false)
         instance.setZoomLevel(zoomPercentToLevel(80))
+        configureSiteLanguage(instance, reloadAfterApply = false)
 
         val tab = BrowserTab(nextTabId++, instance)
         instance.setOnUrlChangedListener { url ->
@@ -393,6 +397,7 @@ class BrowserActivity : Activity() {
             "عرض المفضلة",
             "سجل التصفح",
             "مسح جميع بيانات التصفح",
+            "لغة المواقع",
             "العودة إلى H.B Proxy"
         )
         AlertDialog.Builder(this)
@@ -403,10 +408,101 @@ class BrowserActivity : Activity() {
                     1 -> showBookmarks()
                     2 -> showHistory()
                     3 -> confirmClearAllData()
-                    4 -> stopProxyAndReturn()
+                    4 -> showSiteLanguageSettings()
+                    5 -> stopProxyAndReturn()
                 }
             }
             .show()
+    }
+
+    private fun showSiteLanguageSettings() {
+        val values = arrayOf("auto", "en-US", "en-GB", "de-DE")
+        val labels = arrayOf(
+            "تلقائي حسب لغة الجهاز",
+            "English (US)",
+            "English (UK)",
+            "Deutsch"
+        )
+        val saved = prefs.getString("site_language", "auto") ?: "auto"
+        val selected = values.indexOf(saved).coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle("لغة المواقع")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                prefs.edit().putString("site_language", values[which]).apply()
+                tabs.forEach { tab ->
+                    configureSiteLanguage(tab.browser, reloadAfterApply = true)
+                }
+                Toast.makeText(this, "تم حفظ لغة المواقع", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun selectedSiteLanguage(): Pair<String, String> {
+        return when (prefs.getString("site_language", "auto") ?: "auto") {
+            "en-US" -> Pair("en-US,en;q=0.9", "en-US")
+            "en-GB" -> Pair("en-GB,en;q=0.9", "en-GB")
+            "de-DE" -> Pair("de-DE,de;q=0.9", "de-DE")
+            else -> {
+                val tags = LocaleList.getDefault().toLanguageTags()
+                    .split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                    .ifEmpty { listOf(Locale.getDefault().toLanguageTag()) }
+                val header = tags.mapIndexed { index, tag ->
+                    if (index == 0) tag
+                    else "$tag;q=${String.format(Locale.US, "%.1f", (10 - index).coerceAtLeast(1) / 10.0)}"
+                }.joinToString(",")
+                Pair(header, tags.first())
+            }
+        }
+    }
+
+    private fun configureSiteLanguage(
+        browser: CefriumBrowser,
+        reloadAfterApply: Boolean
+    ) {
+        val (acceptLanguage, localeTag) = selectedSiteLanguage()
+        browser.executeDevToolsMethod(
+            "Emulation.setLocaleOverride",
+            JSONObject().put("locale", localeTag).toString(),
+            null
+        )
+        val evaluateParams = JSONObject()
+            .put("expression", "navigator.userAgent")
+            .put("returnByValue", true)
+            .toString()
+
+        browser.executeDevToolsMethod(
+            "Runtime.evaluate",
+            evaluateParams
+        ) { success, resultJson ->
+            if (!success) return@executeDevToolsMethod
+            val userAgent = try {
+                JSONObject(resultJson)
+                    .optJSONObject("result")
+                    ?.optString("value")
+                    .orEmpty()
+            } catch (_: Exception) {
+                ""
+            }
+            if (userAgent.isBlank()) return@executeDevToolsMethod
+
+            val overrideParams = JSONObject()
+                .put("userAgent", userAgent)
+                .put("acceptLanguage", acceptLanguage)
+                .toString()
+
+            browser.executeDevToolsMethod(
+                "Network.setUserAgentOverride",
+                overrideParams
+            ) { applied, _ ->
+                if (applied && reloadAfterApply) browser.reload()
+            }
+        }
     }
 
     private fun showHistory() {
