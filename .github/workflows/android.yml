@@ -3,9 +3,9 @@ name: Build H.B Proxy and HB Browser APKs
 on:
   workflow_dispatch:
   pull_request:
-    branches: [ feature/vpn-engine-integration ]
+    branches: [ feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
   push:
-    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
+    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser, feature/hb-browser-site-language-build130 ]
 
 permissions:
   contents: read
