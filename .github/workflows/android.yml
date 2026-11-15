@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [ feature/vpn-engine-integration ]
   push:
-    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser ]
+    branches: [ main, master, feature/vpn-engine-integration, integration/proxy-plus-companion-browser, feature/hb-browser-site-language-only ]
 
 permissions:
   contents: read
