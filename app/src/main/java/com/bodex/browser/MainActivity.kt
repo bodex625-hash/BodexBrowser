@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,11 +32,82 @@ import androidx.compose.ui.unit.sp
 import com.bodex.browser.vpn.BodexVpnService
 import com.bodex.browser.license.ProxyLicenseManager
 import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 
 private val Navy = Color(0xFF0B1220)
 private val Panel = Color(0xFF142238)
 private val Cyan = Color(0xFF20C8F5)
 private val Muted = Color(0xFF9FB1C8)
+
+private data class ProxyProfile(
+    val id: String,
+    val name: String,
+    val host: String,
+    val port: String,
+    val username: String,
+    val password: String
+)
+
+private fun readProxyProfiles(prefs: android.content.SharedPreferences): List<ProxyProfile> {
+    val raw = prefs.getString("proxy_profiles_json", null)
+    if (!raw.isNullOrBlank()) {
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                ProxyProfile(
+                    id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                    name = item.optString("name", "Proxy"),
+                    host = item.optString("host"),
+                    port = item.optString("port"),
+                    username = item.optString("username"),
+                    password = item.optString("password")
+                )
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+    // One-time migration: preserve the existing single-proxy configuration.
+    val host = prefs.getString("proxy_host", "").orEmpty()
+    val port = prefs.getString("proxy_port", "").orEmpty()
+    if (host.isNotBlank() && port.isNotBlank()) {
+        return listOf(
+            ProxyProfile(
+                id = UUID.randomUUID().toString(),
+                name = prefs.getString("proxy_label", "My proxy") ?: "My proxy",
+                host = host,
+                port = port,
+                username = prefs.getString("proxy_username", "").orEmpty(),
+                password = prefs.getString("proxy_password", "").orEmpty()
+            )
+        )
+    }
+    return emptyList()
+}
+
+private fun writeProxyProfiles(
+    prefs: android.content.SharedPreferences,
+    profiles: List<ProxyProfile>,
+    selectedId: String?
+) {
+    val array = JSONArray()
+    profiles.forEach { profile ->
+        array.put(
+            JSONObject()
+                .put("id", profile.id)
+                .put("name", profile.name)
+                .put("host", profile.host)
+                .put("port", profile.port)
+                .put("username", profile.username)
+                .put("password", profile.password)
+        )
+    }
+    prefs.edit()
+        .putString("proxy_profiles_json", array.toString())
+        .putString("selected_proxy_id", selectedId)
+        .apply()
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,36 +134,86 @@ private fun HBProxyTheme(content: @Composable () -> Unit) {
 private fun ProxyHome() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("bodex_state", Context.MODE_PRIVATE) }
+    val profiles = remember { mutableStateListOf<ProxyProfile>().apply { addAll(readProxyProfiles(prefs)) } }
 
-    var host by remember { mutableStateOf(prefs.getString("proxy_host", "") ?: "") }
-    var port by remember { mutableStateOf(prefs.getString("proxy_port", "") ?: "") }
-    var username by remember { mutableStateOf(prefs.getString("proxy_username", "") ?: "") }
-    var password by remember { mutableStateOf(prefs.getString("proxy_password", "") ?: "") }
-    var profileLabel by remember { mutableStateOf(prefs.getString("proxy_label", "My proxy") ?: "My proxy") }
+    var selectedId by remember {
+        mutableStateOf(
+            prefs.getString("selected_proxy_id", null)
+                ?: profiles.firstOrNull()?.id
+        )
+    }
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var profileLabel by remember { mutableStateOf("") }
+    var editingId by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(prefs.getBoolean("connected", false)) }
     var connectionMessage by remember {
         mutableStateOf(prefs.getString("message", "غير متصل") ?: "غير متصل")
     }
     var saved by remember { mutableStateOf(false) }
 
-    fun persistSettings(
-        newHost: String = host,
-        newPort: String = port,
-        newUsername: String = username,
-        newPassword: String = password,
-        newLabel: String = profileLabel
-    ) {
-        prefs.edit()
-            .putString("proxy_host", newHost)
-            .putString("proxy_port", newPort)
-            .putString("proxy_username", newUsername)
-            .putString("proxy_password", newPassword)
-            .putString("proxy_label", newLabel)
-            .apply()
-        saved = newHost.isNotBlank() && (newPort.toIntOrNull()?.let { it in 1..65535 } == true)
+    fun loadIntoEditor(profile: ProxyProfile) {
+        selectedId = profile.id
+        editingId = profile.id
+        profileLabel = profile.name
+        host = profile.host
+        port = profile.port
+        username = profile.username
+        password = profile.password
+        saved = true
+        writeProxyProfiles(prefs, profiles, selectedId)
     }
 
-    val validConfig = host.isNotBlank() && (port.toIntOrNull()?.let { it in 1..65535 } == true)
+    fun startNewProfile() {
+        selectedId = null
+        editingId = null
+        profileLabel = ""
+        host = ""
+        port = ""
+        username = ""
+        password = ""
+        saved = false
+    }
+
+    val validConfig = host.isNotBlank() &&
+        (port.toIntOrNull()?.let { it in 1..65535 } == true) &&
+        profileLabel.isNotBlank()
+
+    fun saveProfile() {
+        if (!validConfig) return
+        val id = editingId ?: UUID.randomUUID().toString()
+        val profile = ProxyProfile(
+            id = id,
+            name = profileLabel.trim(),
+            host = host.trim(),
+            port = port,
+            username = username,
+            password = password
+        )
+        val index = profiles.indexOfFirst { it.id == id }
+        if (index >= 0) profiles[index] = profile else profiles.add(profile)
+        selectedId = id
+        editingId = id
+        writeProxyProfiles(prefs, profiles, selectedId)
+        saved = true
+        Toast.makeText(context, "تم حفظ البروكسي ضمن القائمة", Toast.LENGTH_SHORT).show()
+    }
+
+    fun deleteProfile(profile: ProxyProfile) {
+        if (connected && prefs.getString("active_proxy_id", null) == profile.id) {
+            Toast.makeText(context, "أوقف الاتصال قبل حذف البروكسي المستخدم حالياً", Toast.LENGTH_LONG).show()
+            return
+        }
+        profiles.removeAll { it.id == profile.id }
+        if (selectedId == profile.id) {
+            selectedId = profiles.firstOrNull()?.id
+            val next = profiles.firstOrNull()
+            if (next != null) loadIntoEditor(next) else startNewProfile()
+        }
+        writeProxyProfiles(prefs, profiles, selectedId)
+    }
 
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
@@ -122,20 +245,22 @@ private fun ProxyHome() {
     }
 
     val startVpn: () -> Unit = {
-        persistSettings()
-        val serviceIntent = Intent(context, BodexVpnService::class.java).apply {
-            action = BodexVpnService.ACTION_START
-            putExtra(BodexVpnService.EXTRA_HOST, host.trim())
-            putExtra(BodexVpnService.EXTRA_PORT, port.toIntOrNull() ?: 0)
-            putExtra(BodexVpnService.EXTRA_USER, username)
-            putExtra(BodexVpnService.EXTRA_PASS, password)
+        if (saved && validConfig) {
+            prefs.edit().putString("active_proxy_id", selectedId).apply()
+            val serviceIntent = Intent(context, BodexVpnService::class.java).apply {
+                action = BodexVpnService.ACTION_START
+                putExtra(BodexVpnService.EXTRA_HOST, host.trim())
+                putExtra(BodexVpnService.EXTRA_PORT, port.toIntOrNull() ?: 0)
+                putExtra(BodexVpnService.EXTRA_USER, username)
+                putExtra(BodexVpnService.EXTRA_PASS, password)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+            connectionMessage = if (connected) "جارٍ تبديل البروكسي..." else "تم إرسال طلب الاتصال؛ جارٍ التحقق من VPN"
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent)
-        } else {
-            context.startService(serviceIntent)
-        }
-        connectionMessage = "تم إرسال طلب الاتصال؛ جارٍ التحقق من VPN"
     }
 
     val vpnPermission = rememberLauncherForActivityResult(
@@ -186,7 +311,7 @@ private fun ProxyHome() {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -195,12 +320,7 @@ private fun ProxyHome() {
                         .background(Cyan.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.SettingsEthernet,
-                        contentDescription = null,
-                        tint = Cyan,
-                        modifier = Modifier.size(29.dp)
-                    )
+                    Icon(Icons.Default.SettingsEthernet, contentDescription = null, tint = Cyan, modifier = Modifier.size(29.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
@@ -211,43 +331,28 @@ private fun ProxyHome() {
                 Text("v0.2.0", color = Muted, fontSize = 12.sp)
             }
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Panel),
-                shape = RoundedCornerShape(22.dp)
-            ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("حالة الاتصال", color = Muted)
                     Spacer(Modifier.height(8.dp))
+                    Text(connectionMessage, color = if (connected) Color(0xFF7FE0B0) else Color(0xFFFFC266), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        connectionMessage,
-                        color = if (connected) Color(0xFF7FE0B0) else Color(0xFFFFC266),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
+                        if (connected) "البروكسي النشط: ${prefs.getString("active_proxy_id", null)?.let { id -> profiles.firstOrNull { it.id == id }?.name } ?: "غير محدد"}"
+                        else "اتصال SOCKS5 عبر VPN للهاتف بالكامل",
+                        color = Muted,
+                        fontSize = 12.sp
                     )
-                    Text("اتصال SOCKS5 عبر VPN للهاتف بالكامل", color = Muted, fontSize = 12.sp)
                     Spacer(Modifier.height(16.dp))
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = requestStart,
-                            enabled = !connected && validConfig,
+                            enabled = saved && validConfig,
                             modifier = Modifier.weight(1f)
-                        ) { Text("تشغيل البروكسي") }
-
+                        ) { Text(if (connected) "تبديل وتشغيل" else "تشغيل البروكسي") }
                         OutlinedButton(
                             onClick = {
-                                val stop = Intent(context, BodexVpnService::class.java)
-                                    .setAction(BodexVpnService.ACTION_STOP)
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                    context.startForegroundService(stop)
-                                } else {
-                                    context.startService(stop)
-                                }
+                                val stop = Intent(context, BodexVpnService::class.java).setAction(BodexVpnService.ACTION_STOP)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(stop) else context.startService(stop)
                                 connected = false
                                 connectionMessage = "جارٍ إيقاف البروكسي"
                             },
@@ -257,10 +362,37 @@ private fun ProxyHome() {
                     }
                     if (connected) {
                         Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = openBrowser,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("فتح HB Browser") }
+                        OutlinedButton(onClick = openBrowser, modifier = Modifier.fillMaxWidth()) { Text("فتح HB Browser") }
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("البروكسيات المحفوظة (${profiles.size})", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { startNewProfile() }) { Text("+ إضافة بروكسي") }
+            }
+
+            if (profiles.isEmpty()) {
+                Text("لا توجد بروكسيات محفوظة بعد. أضف أول بروكسي من النموذج أدناه.", color = Muted, fontSize = 13.sp)
+            } else {
+                profiles.forEach { profile ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { loadIntoEditor(profile) },
+                        colors = CardDefaults.cardColors(containerColor = if (profile.id == selectedId) Color(0xFF193A55) else Panel),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = profile.id == selectedId, onClick = { loadIntoEditor(profile) })
+                            Column(Modifier.weight(1f)) {
+                                Text(profile.name, color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("${profile.host}:${profile.port}", color = Muted, fontSize = 12.sp)
+                            }
+                            TextButton(onClick = { deleteProfile(profile) }) { Text("حذف", color = Color(0xFFFF8C8C)) }
+                        }
                     }
                 }
             }
@@ -268,34 +400,22 @@ private fun ProxyHome() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.SettingsEthernet, contentDescription = null, tint = Cyan)
                 Spacer(Modifier.width(8.dp))
-                Text("إعداد البروكسي", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(if (editingId == null) "إضافة بروكسي جديد" else "تعديل بيانات البروكسي", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Panel),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Column(
-                    Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = profileLabel,
-                        onValueChange = {
-                            profileLabel = it
-                            persistSettings(newLabel = it)
-                        },
-                        label = { Text("اسم الملف") },
+                        onValueChange = { profileLabel = it; saved = false },
+                        label = { Text("اسم البروكسي (مثلاً: أمريكا)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text("نوع البروكسي: SOCKS5", color = Cyan, fontWeight = FontWeight.Bold)
                     OutlinedTextField(
                         value = host,
-                        onValueChange = {
-                            host = it
-                            persistSettings(newHost = it)
-                        },
+                        onValueChange = { host = it; saved = false },
                         label = { Text("Server / IP") },
                         placeholder = { Text("proxy.example.com") },
                         singleLine = true,
@@ -303,64 +423,38 @@ private fun ProxyHome() {
                     )
                     OutlinedTextField(
                         value = port,
-                        onValueChange = {
-                            val value = it.filter(Char::isDigit).take(5)
-                            port = value
-                            persistSettings(newPort = value)
-                        },
+                        onValueChange = { port = it.filter(Char::isDigit).take(5); saved = false },
                         label = { Text("Port") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = username,
-                        onValueChange = {
-                            username = it
-                            persistSettings(newUsername = it)
-                        },
+                        onValueChange = { username = it; saved = false },
                         label = { Text("Username (اختياري)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = password,
-                        onValueChange = {
-                            password = it
-                            persistSettings(newPassword = it)
-                        },
+                        onValueChange = { password = it; saved = false },
                         label = { Text("Password (اختياري)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Button(
-                        onClick = { persistSettings() },
-                        enabled = validConfig,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("حفظ إعدادات البروكسي")
+                    Button(onClick = { saveProfile() }, enabled = validConfig, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (editingId == null) "حفظ البروكسي الجديد" else "حفظ التعديلات")
                     }
-                    if (saved && validConfig) {
-                        Text(
-                            "تم حفظ بيانات البروكسي تلقائياً على هذا الجهاز",
-                            color = Color(0xFF7FE0B0),
-                            fontSize = 12.sp
-                        )
-                    } else {
-                        Text(
-                            "أدخل عنوان الخادم والمنفذ الصحيحين. تُحفظ التعديلات تلقائياً.",
-                            color = Muted,
-                            fontSize = 12.sp
-                        )
-                    }
+                    Text(
+                        if (saved) "تم حفظ هذا البروكسي. يمكنك اختياره وتشغيله متى تريد."
+                        else "احفظ بيانات البروكسي قبل تشغيله. البروكسيات الأخرى لن تُحذف.",
+                        color = if (saved) Color(0xFF7FE0B0) else Muted,
+                        fontSize = 12.sp
+                    )
                 }
             }
 
-            Text(
-                "H.B Proxy • SOCKS5 VPN",
-                color = Muted,
-                fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            Text("H.B Proxy • SOCKS5 VPN", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
     }
 }
