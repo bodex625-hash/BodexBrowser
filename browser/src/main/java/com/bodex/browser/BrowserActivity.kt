@@ -292,19 +292,22 @@ class BrowserActivity : Activity() {
                         // The first committed document is only about:blank;
                         // do not navigate to a real site until language setup succeeds.
                         if (tab.url.isBlank() || tab.url == "about:blank") {
-                            configureSiteLanguage(instance, reloadAfterApply = false) {
-                                tab.languageConfiguredTag = requiredLanguage
+                            configureSiteLanguage(instance, reloadAfterApply = false) { applied ->
+                                if (applied) tab.languageConfiguredTag = requiredLanguage
                                 tab.languageReady = true
                                 val pending = tab.pendingUrl
                                 tab.pendingUrl = null
                                 if (!pending.isNullOrBlank()) instance.loadUrl(pending)
+                                if (!applied && !isFinishing) {
+                                    Toast.makeText(this@BrowserActivity, "تعذر تطبيق لغة المواقع؛ تم فتح الموقع بالإعدادات الافتراضية", Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
                     } else if (tab.languageConfiguredTag != requiredLanguage &&
                         tab.url.startsWith("http")
                     ) {
-                        configureSiteLanguage(instance, reloadAfterApply = true) {
-                            tab.languageConfiguredTag = requiredLanguage
+                        configureSiteLanguage(instance, reloadAfterApply = true) { applied ->
+                            if (applied) tab.languageConfiguredTag = requiredLanguage
                         }
                     }
                 }
@@ -470,8 +473,8 @@ class BrowserActivity : Activity() {
                     tab.languageConfiguredTag = null
                     if (tab.languageReady && tab.url.startsWith("http")) {
                         val requiredLanguage = selectedSiteLanguage().second
-                        configureSiteLanguage(tab.browser, reloadAfterApply = true) {
-                            tab.languageConfiguredTag = requiredLanguage
+                        configureSiteLanguage(tab.browser, reloadAfterApply = true) { applied ->
+                            if (applied) tab.languageConfiguredTag = requiredLanguage
                         }
                     }
                 }
@@ -515,68 +518,43 @@ class BrowserActivity : Activity() {
         }
     }
 
-    private fun selectedSiteTimezone(): String {
-        return when (siteLanguagePrefs.getString("site_language", "auto") ?: "auto") {
-            "en-GB" -> "Europe/London"
-            "en-US" -> "America/New_York"
-            "de-DE" -> "Europe/Berlin"
-            else -> java.util.TimeZone.getDefault().id
-        }
-    }
-
     private fun configureSiteLanguage(
         browser: CefriumBrowser,
         reloadAfterApply: Boolean,
-        onApplied: (() -> Unit)? = null
+        onApplied: ((Boolean) -> Unit)? = null
     ) {
         val (acceptLanguage, localeTag) = selectedSiteLanguage()
-        val localeParams = JSONObject().put("locale", localeTag).toString()
-        val timezoneParams = JSONObject().put("timezoneId", selectedSiteTimezone()).toString()
-        val evaluateParams = JSONObject()
-            .put("expression", "navigator.userAgent")
-            .put("returnByValue", true)
-            .toString()
+        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+        val timeout = Runnable { finishLanguageSetup(false) }
+        fun finishLanguageSetup(applied: Boolean) {
+            if (!finished.compareAndSet(false, true)) return
+            licenseHandler.removeCallbacks(timeout)
+            runOnUiThread {
+                onApplied?.invoke(applied)
+                if (applied && reloadAfterApply) browser.reload()
+            }
+        }
 
-        // Sequence the DevTools commands. A real navigation is queued until
-        // both locale and Accept-Language have been acknowledged by Chromium.
+        // Language selection must not silently alter the device timezone.
+        // A timeout/failure releases queued navigation so a DevTools issue
+        // can never leave a newly opened tab stuck on about:blank.
+        licenseHandler.postDelayed(timeout, 5000L)
+        val localeParams = JSONObject().put("locale", localeTag).toString()
         browser.executeDevToolsMethod(
             "Emulation.setLocaleOverride",
             localeParams
         ) { localeApplied, _ ->
-            if (!localeApplied) return@executeDevToolsMethod
-            browser.executeDevToolsMethod(
-                "Emulation.setTimezoneOverride",
-                timezoneParams
-            ) { timezoneApplied, _ ->
-                if (!timezoneApplied) return@executeDevToolsMethod
+            if (!localeApplied) {
+                finishLanguageSetup(false)
+            } else {
+                val overrideParams = JSONObject()
+                    .put("acceptLanguage", acceptLanguage)
+                    .toString()
                 browser.executeDevToolsMethod(
-                    "Runtime.evaluate",
-                    evaluateParams
-                ) { success, resultJson ->
-                    if (!success) return@executeDevToolsMethod
-                    val userAgent = try {
-                        JSONObject(resultJson)
-                            .optJSONObject("result")
-                            ?.optString("value")
-                            .orEmpty()
-                    } catch (_: Exception) {
-                        ""
-                    }
-                    if (userAgent.isBlank()) return@executeDevToolsMethod
-
-                    val overrideParams = JSONObject()
-                        .put("userAgent", userAgent)
-                        .put("acceptLanguage", acceptLanguage)
-                        .toString()
-                    browser.executeDevToolsMethod(
-                        "Network.setUserAgentOverride",
-                        overrideParams
-                    ) { applied, _ ->
-                        if (applied) {
-                            onApplied?.invoke()
-                            if (reloadAfterApply) browser.reload()
-                        }
-                    }
+                    "Network.setUserAgentOverride",
+                    overrideParams
+                ) { applied, _ ->
+                    finishLanguageSetup(applied)
                 }
             }
         }
