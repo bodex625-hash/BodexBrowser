@@ -14,4 +14,11 @@
         <path android:fillColor="#FFFFFFFF" android:pathData="M15,29 L27,29 L23,48 L42,48 L47,29 L59,29 L46,79 L34,79 L39,59 L20,59 L15,79 L3,79 Z"/>
         <path android:fillColor="#FFFFFFFF" android:pathData="M58,29 L77,29 C91,29 97,36 94,47 C92,53 88,56 82,58 C89,60 92,66 89,73 C86,81 79,84 68,84 L44,84 Z M66,39 L62,53 L74,53 C80,53 83,50 84,45 C85,41 82,39 77,39 Z M59,63 L55,75 L69,75 C75,75 78,72 79,68 C80,64 77,63 72,63 Z"/>
     </group>
+    <!-- Small Union Jack badge identifying the British-English edition. -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M78,8 A16,16 0,1 1,77.99,8 Z"/>
+    <path android:fillColor="#012169" android:pathData="M66,15 L90,15 L90,31 L66,31 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M66,15 L69,15 L90,28 L90,31 L87,31 L66,18 Z M90,15 L90,18 L69,31 L66,31 L66,28 L87,15 Z"/>
+    <path android:fillColor="#C8102E" android:pathData="M66,15 L67.5,15 L90,29.5 L90,31 L88.5,31 L66,16.5 Z M90,15 L90,16.5 L67.5,31 L66,31 L66,29.5 L88.5,15 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M75,15 L81,15 L81,31 L75,31 Z M66,20 L90,20 L90,26 L66,26 Z"/>
+    <path android:fillColor="#C8102E" android:pathData="M76.5,15 L79.5,15 L79.5,31 L76.5,31 Z M66,21.5 L90,21.5 L90,24.5 L66,24.5 Z"/>
 </vector>
