@@ -525,7 +525,7 @@ class BrowserActivity : Activity() {
     ) {
         val (acceptLanguage, localeTag) = selectedSiteLanguage()
         val finished = java.util.concurrent.atomic.AtomicBoolean(false)
-        val timeout = Runnable { finishLanguageSetup(false) }
+        lateinit var timeout: Runnable
         fun finishLanguageSetup(applied: Boolean) {
             if (!finished.compareAndSet(false, true)) return
             licenseHandler.removeCallbacks(timeout)
@@ -534,6 +534,7 @@ class BrowserActivity : Activity() {
                 if (applied && reloadAfterApply) browser.reload()
             }
         }
+        timeout = Runnable { finishLanguageSetup(false) }
 
         // Language selection must not silently alter the device timezone.
         // A timeout/failure releases queued navigation so a DevTools issue
