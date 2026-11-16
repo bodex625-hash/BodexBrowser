@@ -131,7 +131,7 @@ class BrowserActivity : Activity() {
         }
 
         val brand = TextView(this).apply {
-            text = "HP"
+            text = "HB"
             textSize = 18f
             setTextColor(gold)
             typeface = Typeface.DEFAULT_BOLD
