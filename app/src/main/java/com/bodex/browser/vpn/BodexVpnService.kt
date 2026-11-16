@@ -61,6 +61,9 @@ class BodexVpnService : VpnService() {
                 }
                 enterForeground()
                 worker.execute {
+                    // A new START request replaces the active upstream proxy without
+                    // tearing down the Android service or requiring a second VPN prompt.
+                    if (tun != null) releaseTunnelResources()
                     val licenseState = ProxyLicenseManager.check(this, forceNetwork = true)
                     if (ProxyLicenseManager.isAllowed(licenseState)) {
                         startTunnel(host, port, user, pass)
@@ -162,12 +165,16 @@ class BodexVpnService : VpnService() {
         broadcastState(false, message)
     }
 
-    private fun stopTunnel() {
+    private fun releaseTunnelResources() {
         monitorHandler.removeCallbacks(licenseMonitor)
         monitorHandler.removeCallbacks(engineMonitor)
         try { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() } catch (_: Throwable) {}
         try { tun?.close() } catch (_: IOException) {}
         tun = null
+    }
+
+    private fun stopTunnel() {
+        releaseTunnelResources()
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
         broadcastState(false, "غير متصل")
         stopSelf()
