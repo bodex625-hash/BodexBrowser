@@ -73,7 +73,8 @@ class BrowserActivity : Activity() {
         val id: Int,
         val browser: CefriumBrowser,
         var title: String = "تبويب جديد",
-        var url: String = ""
+        var url: String = "",
+        var languageConfiguredTag: String? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -254,8 +255,9 @@ class BrowserActivity : Activity() {
         instance.setJavaScriptEnabled(true)
         instance.setPinchToZoomEnabled(false)
         instance.setZoomLevel(zoomPercentToLevel(80))
-        configureSiteLanguage(instance, reloadAfterApply = false)
-
+        // Language is applied after the first document exists. This ensures
+        // Chromium has a live target before we set the request language, and
+        // the completed application is remembered per tab to avoid loops.
         val tab = BrowserTab(nextTabId++, instance)
         instance.setOnUrlChangedListener { url ->
             runOnUiThread {
@@ -283,6 +285,12 @@ class BrowserActivity : Activity() {
             runOnUiThread {
                 if (!isLoading && !isFinishing && !isDestroyed) {
                     instance.setZoomLevel(zoomPercentToLevel(80))
+                    val requiredLanguage = selectedSiteLanguage().second
+                    if (tab.languageConfiguredTag != requiredLanguage) {
+                        configureSiteLanguage(instance, reloadAfterApply = true) {
+                            tab.languageConfiguredTag = requiredLanguage
+                        }
+                    }
                 }
                 if (activeTab?.id == tab.id && !isFinishing) {
                     progress.visibility = if (isLoading) View.VISIBLE else View.GONE
@@ -433,7 +441,13 @@ class BrowserActivity : Activity() {
             .setSingleChoiceItems(labels, selected) { dialog, which ->
                 siteLanguagePrefs.edit().putString("site_language", values[which]).apply()
                 tabs.forEach { tab ->
-                    configureSiteLanguage(tab.browser, reloadAfterApply = true)
+                    tab.languageConfiguredTag = null
+                    if (tab.url.startsWith("http")) {
+                        val requiredLanguage = selectedSiteLanguage().second
+                        configureSiteLanguage(tab.browser, reloadAfterApply = true) {
+                            tab.languageConfiguredTag = requiredLanguage
+                        }
+                    }
                 }
                 Toast.makeText(this, "تم حفظ لغة المواقع", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
@@ -477,7 +491,8 @@ class BrowserActivity : Activity() {
 
     private fun configureSiteLanguage(
         browser: CefriumBrowser,
-        reloadAfterApply: Boolean
+        reloadAfterApply: Boolean,
+        onApplied: (() -> Unit)? = null
     ) {
         val (acceptLanguage, localeTag) = selectedSiteLanguage()
         browser.executeDevToolsMethod(
@@ -523,7 +538,12 @@ class BrowserActivity : Activity() {
                 "Network.setUserAgentOverride",
                 overrideParams
             ) { applied, _ ->
-                if (applied && reloadAfterApply) browser.reload()
+                if (applied) {
+                    // Mark the tab before reloading so the load-finished
+                    // callback does not apply the same setting repeatedly.
+                    onApplied?.invoke()
+                    if (reloadAfterApply) browser.reload()
+                }
             }
         }
     }
