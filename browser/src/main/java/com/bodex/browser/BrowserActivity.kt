@@ -28,6 +28,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.cefrium.CefriumBrowser
 import com.cefrium.CefriumProfile
+import org.json.JSONObject
 import java.util.concurrent.Executors
 
 class BrowserActivity : Activity() {
@@ -130,7 +131,7 @@ class BrowserActivity : Activity() {
         }
 
         val brand = TextView(this).apply {
-            text = "HB"
+            text = "HP"
             textSize = 18f
             setTextColor(gold)
             typeface = Typeface.DEFAULT_BOLD
@@ -249,6 +250,7 @@ class BrowserActivity : Activity() {
         instance.setJavaScriptEnabled(true)
         instance.setPinchToZoomEnabled(false)
         instance.setZoomLevel(zoomPercentToLevel(80))
+        configureBritishEnglish(instance)
 
         val tab = BrowserTab(nextTabId++, instance)
         instance.setOnUrlChangedListener { url ->
@@ -396,7 +398,7 @@ class BrowserActivity : Activity() {
             "العودة إلى H.B Proxy"
         )
         AlertDialog.Builder(this)
-            .setTitle("HB Browser")
+            .setTitle("HP GB")
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> saveBookmark()
@@ -407,6 +409,31 @@ class BrowserActivity : Activity() {
                 }
             }
             .show()
+    }
+
+    private fun configureBritishEnglish(browser: CefriumBrowser) {
+        // Fixed British English preference for every newly created tab.
+        browser.executeDevToolsMethod(
+            "Emulation.setLocaleOverride",
+            JSONObject().put("locale", "en-GB").toString(),
+            null
+        )
+        val evaluateParams = JSONObject()
+            .put("expression", "navigator.userAgent")
+            .put("returnByValue", true)
+            .toString()
+        browser.executeDevToolsMethod("Runtime.evaluate", evaluateParams) { success, resultJson ->
+            if (!success) return@executeDevToolsMethod
+            val userAgent = try {
+                JSONObject(resultJson).optJSONObject("result")?.optString("value").orEmpty()
+            } catch (_: Exception) { "" }
+            if (userAgent.isBlank()) return@executeDevToolsMethod
+            val params = JSONObject()
+                .put("userAgent", userAgent)
+                .put("acceptLanguage", "en-GB,en;q=0.9")
+                .toString()
+            browser.executeDevToolsMethod("Network.setUserAgentOverride", params, null)
+        }
     }
 
     private fun showHistory() {
@@ -496,7 +523,7 @@ class BrowserActivity : Activity() {
 
     private fun showAboutDialog() {
         AlertDialog.Builder(this)
-            .setTitle("حول HB Browser")
+            .setTitle("حول HP GB")
             .setMessage(
                 "HB Browser\n" +
                     "برمجة BODEX و HADI\n" +
