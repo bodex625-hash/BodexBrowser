@@ -48,6 +48,8 @@ class BrowserActivity : Activity() {
     private var activeTab: BrowserTab? = null
     private var nextTabId = 1
     private val prefs by lazy { getSharedPreferences("hb_browser", Context.MODE_PRIVATE) }
+    // Keep website-language preference separate from browsing history/cache data.
+    private val siteLanguagePrefs by lazy { getSharedPreferences("hb_browser_site_language", Context.MODE_PRIVATE) }
     private val licenseExecutor = Executors.newSingleThreadExecutor()
     private val licenseHandler = Handler(Looper.getMainLooper())
     private val licenseCheck = object : Runnable {
@@ -423,13 +425,13 @@ class BrowserActivity : Activity() {
             "English (UK)",
             "Deutsch"
         )
-        val saved = prefs.getString("site_language", "auto") ?: "auto"
+        val saved = siteLanguagePrefs.getString("site_language", "auto") ?: "auto"
         val selected = values.indexOf(saved).coerceAtLeast(0)
 
         AlertDialog.Builder(this)
             .setTitle("لغة المواقع")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
-                prefs.edit().putString("site_language", values[which]).apply()
+                siteLanguagePrefs.edit().putString("site_language", values[which]).apply()
                 tabs.forEach { tab ->
                     configureSiteLanguage(tab.browser, reloadAfterApply = true)
                 }
@@ -441,20 +443,32 @@ class BrowserActivity : Activity() {
     }
 
     private fun selectedSiteLanguage(): Pair<String, String> {
-        return when (prefs.getString("site_language", "auto") ?: "auto") {
+        return when (siteLanguagePrefs.getString("site_language", "auto") ?: "auto") {
             "en-US" -> Pair("en-US,en;q=0.9", "en-US")
             "en-GB" -> Pair("en-GB,en;q=0.9", "en-GB")
             "de-DE" -> Pair("de-DE,de;q=0.9", "de-DE")
             else -> {
-                val tags = LocaleList.getDefault().toLanguageTags()
+                // Use the locale resolved for this Android app from the device configuration.
+                // This preserves regional tags such as en-GB instead of assuming en-US.
+                val configuredLocales = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    resources.configuration.locales
+                } else {
+                    LocaleList.getDefault()
+                }
+                val tags = configuredLocales.toLanguageTags()
                     .split(",")
                     .map { it.trim() }
-                    .filter { it.isNotEmpty() }
+                    .filter { it.isNotEmpty() && it != "und" }
                     .distinct()
-                    .ifEmpty { listOf(Locale.getDefault().toLanguageTag()) }
+                    .ifEmpty {
+                        listOf(Locale.getDefault().toLanguageTag().ifBlank { "en-US" })
+                    }
                 val header = tags.mapIndexed { index, tag ->
                     if (index == 0) tag
-                    else "$tag;q=${String.format(Locale.US, "%.1f", (10 - index).coerceAtLeast(1) / 10.0)}"
+                    else {
+                        val quality = (10 - index).coerceAtLeast(1) / 10.0
+                        "$tag;q=${String.format(Locale.US, "%.1f", quality)}"
+                    }
                 }.joinToString(",")
                 Pair(header, tags.first())
             }
