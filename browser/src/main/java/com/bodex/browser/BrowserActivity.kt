@@ -74,7 +74,9 @@ class BrowserActivity : Activity() {
         val browser: CefriumBrowser,
         var title: String = "تبويب جديد",
         var url: String = "",
-        var languageConfiguredTag: String? = null
+        var languageConfiguredTag: String? = null,
+        var languageReady: Boolean = false,
+        var pendingUrl: String? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -255,9 +257,9 @@ class BrowserActivity : Activity() {
         instance.setJavaScriptEnabled(true)
         instance.setPinchToZoomEnabled(false)
         instance.setZoomLevel(zoomPercentToLevel(80))
-        // Language is applied after the first document exists. This ensures
-        // Chromium has a live target before we set the request language, and
-        // the completed application is remembered per tab to avoid loops.
+        // Each tab first commits about:blank. We then apply locale and
+        // Accept-Language to its live DevTools target before any real site
+        // request is allowed to leave the browser.
         val tab = BrowserTab(nextTabId++, instance)
         instance.setOnUrlChangedListener { url ->
             runOnUiThread {
@@ -286,7 +288,21 @@ class BrowserActivity : Activity() {
                 if (!isLoading && !isFinishing && !isDestroyed) {
                     instance.setZoomLevel(zoomPercentToLevel(80))
                     val requiredLanguage = selectedSiteLanguage().second
-                    if (tab.languageConfiguredTag != requiredLanguage) {
+                    if (!tab.languageReady) {
+                        // The first committed document is only about:blank;
+                        // do not navigate to a real site until language setup succeeds.
+                        if (tab.url.isBlank() || tab.url == "about:blank") {
+                            configureSiteLanguage(instance, reloadAfterApply = false) {
+                                tab.languageConfiguredTag = requiredLanguage
+                                tab.languageReady = true
+                                val pending = tab.pendingUrl
+                                tab.pendingUrl = null
+                                if (!pending.isNullOrBlank()) instance.loadUrl(pending)
+                            }
+                        }
+                    } else if (tab.languageConfiguredTag != requiredLanguage &&
+                        tab.url.startsWith("http")
+                    ) {
                         configureSiteLanguage(instance, reloadAfterApply = true) {
                             tab.languageConfiguredTag = requiredLanguage
                         }
@@ -304,8 +320,16 @@ class BrowserActivity : Activity() {
             FrameLayout.LayoutParams(-1, -1)
         )
         selectTab(tab)
-        if (initialUrl.isNotBlank()) {
-            instance.loadUrl(initialUrl)
+        tab.pendingUrl = initialUrl.takeIf { it.isNotBlank() }
+        instance.loadUrl("about:blank")
+    }
+
+    private fun navigateTab(tab: BrowserTab, url: String) {
+        if (tab.languageReady) {
+            tab.browser.loadUrl(url)
+        } else {
+            // Queue navigation until the language override is active.
+            tab.pendingUrl = url
         }
     }
 
@@ -395,7 +419,7 @@ class BrowserActivity : Activity() {
             value.startsWith("http://") || value.startsWith("https://") -> value
             else -> "https://$value"
         }
-        activeTab?.browser?.loadUrl(url)
+        activeTab?.let { navigateTab(it, url) }
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
             .hideSoftInputFromWindow(address.windowToken, 0)
         address.clearFocus()
@@ -439,10 +463,12 @@ class BrowserActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("لغة المواقع")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
-                siteLanguagePrefs.edit().putString("site_language", values[which]).apply()
+                // Commit independently of browsing data so an immediate
+                // clear-history action or process restart cannot lose the choice.
+                siteLanguagePrefs.edit().putString("site_language", values[which]).commit()
                 tabs.forEach { tab ->
                     tab.languageConfiguredTag = null
-                    if (tab.url.startsWith("http")) {
+                    if (tab.languageReady && tab.url.startsWith("http")) {
                         val requiredLanguage = selectedSiteLanguage().second
                         configureSiteLanguage(tab.browser, reloadAfterApply = true) {
                             tab.languageConfiguredTag = requiredLanguage
@@ -489,60 +515,68 @@ class BrowserActivity : Activity() {
         }
     }
 
+    private fun selectedSiteTimezone(): String {
+        return when (siteLanguagePrefs.getString("site_language", "auto") ?: "auto") {
+            "en-GB" -> "Europe/London"
+            "en-US" -> "America/New_York"
+            "de-DE" -> "Europe/Berlin"
+            else -> java.util.TimeZone.getDefault().id
+        }
+    }
+
     private fun configureSiteLanguage(
         browser: CefriumBrowser,
         reloadAfterApply: Boolean,
         onApplied: (() -> Unit)? = null
     ) {
         val (acceptLanguage, localeTag) = selectedSiteLanguage()
-        browser.executeDevToolsMethod(
-            "Emulation.setLocaleOverride",
-            JSONObject().put("locale", localeTag).toString(),
-            null
-        )
-
-        // Keep JavaScript timezone aligned with Android system timezone.
-        // This is independent from website language and upstream proxy location.
-        val systemTimezone = java.util.TimeZone.getDefault().id
-        browser.executeDevToolsMethod(
-            "Emulation.setTimezoneOverride",
-            JSONObject().put("timezoneId", systemTimezone).toString(),
-            null
-        )
+        val localeParams = JSONObject().put("locale", localeTag).toString()
+        val timezoneParams = JSONObject().put("timezoneId", selectedSiteTimezone()).toString()
         val evaluateParams = JSONObject()
             .put("expression", "navigator.userAgent")
             .put("returnByValue", true)
             .toString()
 
+        // Sequence the DevTools commands. A real navigation is queued until
+        // both locale and Accept-Language have been acknowledged by Chromium.
         browser.executeDevToolsMethod(
-            "Runtime.evaluate",
-            evaluateParams
-        ) { success, resultJson ->
-            if (!success) return@executeDevToolsMethod
-            val userAgent = try {
-                JSONObject(resultJson)
-                    .optJSONObject("result")
-                    ?.optString("value")
-                    .orEmpty()
-            } catch (_: Exception) {
-                ""
-            }
-            if (userAgent.isBlank()) return@executeDevToolsMethod
-
-            val overrideParams = JSONObject()
-                .put("userAgent", userAgent)
-                .put("acceptLanguage", acceptLanguage)
-                .toString()
-
+            "Emulation.setLocaleOverride",
+            localeParams
+        ) { localeApplied, _ ->
+            if (!localeApplied) return@executeDevToolsMethod
             browser.executeDevToolsMethod(
-                "Network.setUserAgentOverride",
-                overrideParams
-            ) { applied, _ ->
-                if (applied) {
-                    // Mark the tab before reloading so the load-finished
-                    // callback does not apply the same setting repeatedly.
-                    onApplied?.invoke()
-                    if (reloadAfterApply) browser.reload()
+                "Emulation.setTimezoneOverride",
+                timezoneParams
+            ) { timezoneApplied, _ ->
+                if (!timezoneApplied) return@executeDevToolsMethod
+                browser.executeDevToolsMethod(
+                    "Runtime.evaluate",
+                    evaluateParams
+                ) { success, resultJson ->
+                    if (!success) return@executeDevToolsMethod
+                    val userAgent = try {
+                        JSONObject(resultJson)
+                            .optJSONObject("result")
+                            ?.optString("value")
+                            .orEmpty()
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    if (userAgent.isBlank()) return@executeDevToolsMethod
+
+                    val overrideParams = JSONObject()
+                        .put("userAgent", userAgent)
+                        .put("acceptLanguage", acceptLanguage)
+                        .toString()
+                    browser.executeDevToolsMethod(
+                        "Network.setUserAgentOverride",
+                        overrideParams
+                    ) { applied, _ ->
+                        if (applied) {
+                            onApplied?.invoke()
+                            if (reloadAfterApply) browser.reload()
+                        }
+                    }
                 }
             }
         }
@@ -559,7 +593,7 @@ class BrowserActivity : Activity() {
             .setTitle("سجل التصفح")
             .setItems(entries.map { it.substringAfter("|", "") }.toTypedArray()) { _, which ->
                 val url = entries[which].substringAfter("|", "")
-                if (url.startsWith("http")) activeTab?.browser?.loadUrl(url)
+                if (url.startsWith("http")) activeTab?.let { navigateTab(it, url) }
             }
             .setNegativeButton("إغلاق", null)
             .show()
@@ -667,7 +701,7 @@ class BrowserActivity : Activity() {
             .setTitle("المفضلة")
             .setItems(all.map { it.substringBefore("|") }.toTypedArray()) { _, which ->
                 val url = all[which].substringAfter("|", "")
-                if (url.isNotEmpty()) activeTab?.browser?.loadUrl(url)
+                if (url.isNotEmpty()) activeTab?.let { navigateTab(it, url) }
             }
             .setNegativeButton("إغلاق", null)
             .show()
