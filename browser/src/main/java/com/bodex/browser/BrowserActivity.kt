@@ -471,6 +471,15 @@ class BrowserActivity : Activity() {
             JSONObject().put("locale", localeTag).toString(),
             null
         )
+
+        // Keep JavaScript timezone aligned with Android system timezone.
+        // This is independent from website language and upstream proxy location.
+        val systemTimezone = java.util.TimeZone.getDefault().id
+        browser.executeDevToolsMethod(
+            "Emulation.setTimezoneOverride",
+            JSONObject().put("timezoneId", systemTimezone).toString(),
+            null
+        )
         val evaluateParams = JSONObject()
             .put("expression", "navigator.userAgent")
             .put("returnByValue", true)
