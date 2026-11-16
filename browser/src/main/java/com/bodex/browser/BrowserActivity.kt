@@ -548,14 +548,41 @@ class BrowserActivity : Activity() {
             if (!localeApplied) {
                 finishLanguageSetup(false)
             } else {
-                val overrideParams = JSONObject()
-                    .put("acceptLanguage", acceptLanguage)
+                // Network.setUserAgentOverride requires the current user-agent
+                // string as well as acceptLanguage. Read it from Chromium first;
+                // omitting userAgent causes the override command to be rejected.
+                val evaluateParams = JSONObject()
+                    .put("expression", "navigator.userAgent")
+                    .put("returnByValue", true)
                     .toString()
                 browser.executeDevToolsMethod(
-                    "Network.setUserAgentOverride",
-                    overrideParams
-                ) { applied, _ ->
-                    finishLanguageSetup(applied)
+                    "Runtime.evaluate",
+                    evaluateParams
+                ) { evaluated, resultJson ->
+                    val userAgent = if (evaluated) {
+                        try {
+                            JSONObject(resultJson)
+                                .optJSONObject("result")
+                                ?.optString("value")
+                                .orEmpty()
+                        } catch (_: Exception) {
+                            ""
+                        }
+                    } else ""
+                    if (userAgent.isBlank()) {
+                        finishLanguageSetup(false)
+                    } else {
+                        val overrideParams = JSONObject()
+                            .put("userAgent", userAgent)
+                            .put("acceptLanguage", acceptLanguage)
+                            .toString()
+                        browser.executeDevToolsMethod(
+                            "Network.setUserAgentOverride",
+                            overrideParams
+                        ) { applied, _ ->
+                            finishLanguageSetup(applied)
+                        }
+                    }
                 }
             }
         }
