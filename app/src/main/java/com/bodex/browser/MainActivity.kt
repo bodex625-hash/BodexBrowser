@@ -215,6 +215,12 @@ private fun ProxyHome() {
         writeProxyProfiles(prefs, profiles, selectedId)
     }
 
+    LaunchedEffect(Unit) {
+        val initial = profiles.firstOrNull { it.id == selectedId } ?: profiles.firstOrNull()
+        if (initial != null) loadIntoEditor(initial)
+        else writeProxyProfiles(prefs, profiles, null)
+    }
+
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
