@@ -104,7 +104,7 @@ class BrowserActivity : Activity() {
         }
 
         buildInterface()
-        createNewTab()
+        createNewTab("https://whoer.net")
     }
 
     private fun dp(value: Int): Int =
