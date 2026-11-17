@@ -426,7 +426,6 @@ class BrowserActivity : Activity() {
             "حول التطبيق"
         )
         AlertDialog.Builder(this)
-            .setTitle("HP GB")
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> saveBookmark()
@@ -578,6 +577,7 @@ class BrowserActivity : Activity() {
             text = message
             textSize = 15f
             setTextColor(Color.WHITE)
+            setBackgroundColor(panel)
             setLineSpacing(dp(4).toFloat(), 1f)
             movementMethod = LinkMovementMethod.getInstance()
             setPadding(dp(22), dp(12), dp(22), dp(8))
