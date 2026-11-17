@@ -128,6 +128,10 @@ class BrowserActivity : Activity() {
         val addressRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            // Keep the address bar comfortably below the status bar across devices.
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(8)
+            }
         }
 
         val brand = TextView(this).apply {
