@@ -10,6 +10,12 @@ import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
+import android.text.style.URLSpan
+import android.text.method.LinkMovementMethod
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -416,7 +422,8 @@ class BrowserActivity : Activity() {
             "عرض المفضلة",
             "سجل التصفح",
             "مسح جميع بيانات التصفح",
-            "العودة إلى H.B Proxy"
+            "العودة إلى H.B Proxy",
+            "حول التطبيق"
         )
         AlertDialog.Builder(this)
             .setTitle("HP GB")
@@ -427,6 +434,7 @@ class BrowserActivity : Activity() {
                     2 -> showHistory()
                     3 -> confirmClearAllData()
                     4 -> stopProxyAndReturn()
+                    5 -> showAboutDialog()
                 }
             }
             .show()
@@ -543,14 +551,43 @@ class BrowserActivity : Activity() {
     }
 
     private fun showAboutDialog() {
+        val cyan = Color.rgb(45, 190, 220)
+        val message = SpannableStringBuilder().apply {
+            append("HB Browser\n")
+            append("متصفح خاص وحصري\n\n")
+            append("التطوير والبرمجة: ")
+            val developersStart = length
+            append("BODEX و HADI")
+            setSpan(StyleSpan(Typeface.BOLD), developersStart, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            append("\n\n")
+            append("الجهة المالكة: ")
+            val ownerStart = length
+            append("LifePoints in Syria")
+            setSpan(StyleSpan(Typeface.BOLD), ownerStart, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            append("\n\n")
+            append("هذا التطبيق مخصص وحصري لمجتمع قناة LifePoints in Syria، وتم تطويره ليكون جزءاً من منظومة خدماتها.\n\n")
+            append("بوت الخدمات والدعم: ")
+            val linkStart = length
+            append("@lifepointbodexbot")
+            setSpan(URLSpan("https://t.me/lifepointbodexbot"), linkStart, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(cyan), linkStart, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(StyleSpan(Typeface.BOLD), linkStart, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        val content = TextView(this).apply {
+            text = message
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setLineSpacing(dp(4).toFloat(), 1f)
+            movementMethod = LinkMovementMethod.getInstance()
+            setPadding(dp(22), dp(12), dp(22), dp(8))
+            setLinkTextColor(cyan)
+        }
+
         AlertDialog.Builder(this)
-            .setTitle("حول HP GB")
-            .setMessage(
-                "HB Browser\n" +
-                    "برمجة BODEX و HADI\n" +
-                    "قيد التطوير"
-            )
-            .setPositiveButton("حسناً", null)
+            .setTitle("حول HB Browser")
+            .setView(content)
+            .setPositiveButton("إغلاق", null)
             .show()
     }
 
