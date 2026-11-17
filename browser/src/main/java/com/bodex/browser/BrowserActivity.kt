@@ -576,7 +576,7 @@ class BrowserActivity : Activity() {
         val content = TextView(this).apply {
             text = message
             textSize = 15f
-            setTextColor(Color.WHITE)
+            setTextColor(Color.BLACK)
             setBackgroundColor(panel)
             setLineSpacing(dp(4).toFloat(), 1f)
             movementMethod = LinkMovementMethod.getInstance()
