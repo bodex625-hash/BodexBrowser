@@ -26,6 +26,8 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.cefrium.CefriumBrowser
 import com.cefrium.CefriumProfile
 import org.json.JSONObject
@@ -128,10 +130,6 @@ class BrowserActivity : Activity() {
         val addressRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            // Keep the address bar comfortably below the status bar across devices.
-            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            }
         }
 
         val brand = TextView(this).apply {
@@ -225,6 +223,25 @@ class BrowserActivity : Activity() {
             setBackgroundColor(Color.WHITE)
         }
         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        // Android 15 enforces edge-to-edge for targetSdk 35. Apply system-bar
+        // insets only on that platform so older devices keep the original layout.
+        if (Build.VERSION.SDK_INT >= 35) {
+            val baseLeft = dp(8)
+            val baseTop = dp(7)
+            val baseRight = dp(8)
+            val baseBottom = dp(3)
+            ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                view.setPadding(
+                    baseLeft + bars.left,
+                    baseTop + bars.top,
+                    baseRight + bars.right,
+                    baseBottom + bars.bottom
+                )
+                insets
+            }
+        }
         setContentView(root)
     }
 
